@@ -43,20 +43,20 @@ formula2 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') + 
-  rhum + temp
+  rhum + temp + offset(log(populacao))
 
 formula3 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
-  f(idInteraction, model = 'iid')
+  f(idInteraction, model = 'iid') + offset(log(populacao))
 
 formula4 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
   f(idInteraction, model = 'iid') +
-  rhum + temp
+  rhum + temp + offset(log(populacao))
 
 #bell fit-------------------------------------------------------------------
 bell_fit1 = inla(

@@ -12,6 +12,7 @@ micro_v = read_csv('data/output_data/micro_reg_v_df.csv')
 #spatial data
 micro_spatial = read_csv('data/spatial_data/micro_map.csv')
 
+
 #adjacency matrix
 image(inla.graph2matrix(inla.read.graph(micro_path)), xlab = '', ylab = '')
 
@@ -36,20 +37,20 @@ formula2 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') + 
-  rhum + temp
+  rhum + temp + offset(log(populacao))
 
 formula3 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
-  f(idInteraction, model = 'iid')
+  f(idInteraction, model = 'iid') + offset(log(populacao))
 
 formula4 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
   f(idInteraction, model = 'iid') +
-  rhum + temp
+  rhum + temp + offset(log(populacao))
 
 #best vivax models-------------------------------------------------------
 #bell
@@ -124,55 +125,48 @@ zero_nbinomial_rate_test = zinb_fit4_rate_all[(20545 - 3852: 20544)]
 
 #tables of errors----------------------------------------------------------
 test_errors_vivax = dplyr::tibble(
-  dist = c('bell', 'poisson', 'nbinomial', 'zero_poisson', 
-           'zero_nbinomial'),
+  dist = c('bell', 'poisson', 'nbinomial', 'zero_poisson'),
   
   mbe = c(
     mbe(real_rates_test, bell_rate_test),
     mbe(real_rates_test, poi_rate_test),
     mbe(real_rates_test, nbinomial_rate_test),
-    mbe(real_rates_test, zero_poi_rate_test),
-    mbe(real_rates_test, zero_nbinomial_rate_test)
+    mbe(real_rates_test, zero_poi_rate_test)
   ),
   
   nrmse = c(
     nrmse(real_rates_test, bell_rate_test),
     nrmse(real_rates_test, poi_rate_test),
     nrmse(real_rates_test, nbinomial_rate_test),
-    nrmse(real_rates_test, zero_poi_rate_test),
-    nrmse(real_rates_test, zero_nbinomial_rate_test)
+    nrmse(real_rates_test, zero_poi_rate_test)
   ),
   
   rae = c(
     rae(real_rates_test, bell_rate_test),
     rae(real_rates_test, poi_rate_test),
     rae(real_rates_test, nbinomial_rate_test),
-    rae(real_rates_test, zero_poi_rate_test),
-    rae(real_rates_test, zero_nbinomial_rate_test)
+    rae(real_rates_test, zero_poi_rate_test)
   ),
   
   rmsle = c(
     rmsle(real_rates_test, bell_rate_test),
     rmsle(real_rates_test, poi_rate_test),
     rmsle(real_rates_test, nbinomial_rate_test),
-    rmsle(real_rates_test, zero_poi_rate_test),
-    rmsle(real_rates_test, zero_nbinomial_rate_test)
+    rmsle(real_rates_test, zero_poi_rate_test)
   ),
   
   rse = c(
     rse(real_rates_test, bell_rate_test),
     rse(real_rates_test, poi_rate_test),
     rse(real_rates_test, nbinomial_rate_test),
-    rse(real_rates_test, zero_poi_rate_test),
-    rse(real_rates_test, zero_nbinomial_rate_test)
+    rse(real_rates_test, zero_poi_rate_test)
   ),
   
   cor = c(
     cor(real_rates_test, bell_rate_test),
     cor(real_rates_test, poi_rate_test),
     cor(real_rates_test, nbinomial_rate_test),
-    cor(real_rates_test, zero_poi_rate_test),
-    cor(real_rates_test, zero_nbinomial_rate_test)
+    cor(real_rates_test, zero_poi_rate_test)
   )
   
 )
