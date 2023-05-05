@@ -81,7 +81,7 @@ poisson_fit2 = inla(
   verbose = F
 )
 
-#DIC = -148685.57; DIC saturado = -2.19e+23; WAIC = 8688521.22
+#DIC = -161506.82; DIC saturado = -221637.30; WAIC = 8678543.80
 #ambas as variáveis significativas pelo intervalo de credibilidade
 #modelo pior em relação ao primeiro
 poisson_fit2 |> summary()
@@ -97,7 +97,7 @@ poisson_fit3 = inla(
   verbose = F
 )
 
-#DIC = 97406.88; DIC saturado = -5.86e+23; WAIC = 96182.68
+#DIC = 97385.18; DIC saturado = 29246.26; WAIC = 96175.74
 #Melhora significativa em realação ao modelo anterior
 poisson_fit3 |> summary()
 #piora significativa no PIT do modelo
@@ -113,7 +113,7 @@ poisson_fit4 = inla(
   verbose = F
 )
 
-#DIC = 97441.30; DIC saturado = -5.86e+23; WAIC = 96233.18
+#DIC = 97421.40; DIC saturado = 29282.49; WAIC = 96230.33
 #piora em relação ao modelo anterior.
 #ambas as covariáveis consideradas significantes
 poisson_fit4 |> summary()

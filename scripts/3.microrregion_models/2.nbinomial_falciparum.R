@@ -22,7 +22,7 @@ micro_f$idArea = pmatch(
   duplicates.ok = T
 )
 
-micro_f$idArea2 = micro_v$idArea
+micro_f$idArea2 = micro_f$idArea
 
 #creating id interaction (between area and time)
 micro_f$idInteraction = as.numeric(interaction(micro_f$idArea, 
@@ -67,7 +67,7 @@ nbinomial_fit1 = inla(
   verbose = F
 )
 
-#DIC = 84406.20; WAIC = 84471.37; 
+#DIC = 84406.18; WAIC = 84471.37; 
 nbinomial_fit1 |> summary()
 #PIT com frequência de classes chegando próximo aos 5000, não balanceado
 hist(nbinomial_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
@@ -81,7 +81,7 @@ nbinomial_fit2 = inla(
   verbose = F
 )
 
-#DIC = 84345.43; DIC saturated = 14362.84; WAIC = 84412.01
+#DIC = 84398.52; WAIC = 84465.13
 #ambas as variáveis significativas pelo intervalo de credibilidade
 nbinomial_fit2 |> summary()
 #PIT igual ao do modelo 1
@@ -96,7 +96,7 @@ nbinomial_fit3 = inla(
   verbose = F
 )
 
-#DIC = 83209.12; DIC saturated = 17424.65; WAIC = 83437.69
+#DIC = 83283.62; WAIC = 83531.89
 #Melhora significativa em realação ao modelo anterior
 nbinomial_fit3 |> summary()
 #piora significativa no PIT do modelo
@@ -112,7 +112,7 @@ nbinomial_fit4 = inla(
   verbose = F
 )
 
-#DIC = 83173.28; DIC saturated = 17322.90; WAIC = 83461.40
+#DIC = 83208.45; WAIC = 83525.96
 #melhora um pouco em relação ao modelo anterior.
 #nenhuma das duas consideradas significantes, mas contribuem para 
 #a queda do DIC

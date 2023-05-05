@@ -81,7 +81,7 @@ nbinomial_fit2 = inla(
   verbose = F
 )
 
-#DIC = 132187.06; DIC saturado = 17363.62; WAIC = 132242.24
+#DIC = 132296.33; WAIC = 132355.88
 #ambas as variáveis significativas pelo intervalo de credibilidade
 nbinomial_fit2 |> summary()
 #PIT igual ao do modelo 1
@@ -96,7 +96,7 @@ nbinomial_fit3 = inla(
   verbose = F
 )
 
-#DIC = 130151.32; DIC saturado = 22198.51; WAIC = 130577.45
+#DIC = 130422.1; WAIC = 130668.45
 #Melhora significativa em realação ao modelo anterior
 nbinomial_fit3 |> summary()
 #piora significativa no PIT do modelo
@@ -112,7 +112,7 @@ nbinomial_fit4 = inla(
   verbose = F
 )
 
-#DIC = 130167.62; DIC saturado = 22199.05; WAIC = 130604.97
+#DIC = 130166.51; WAIC = 130598.41
 #piora em relação ao modelo anterior.
 #ambas as covariáveis consideradas significantes
 nbinomial_fit4 |> summary()
@@ -122,7 +122,7 @@ hist(nbinomial_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 #Ao menos em termos de DIC, o melhor modelo foi o 3.
 
 #check fit3 predictions
-nbinomial_rate_all = nbinomial_fit3$summary.fitted.values$mode*
+nbinomial_rate_all = nbinomial_fit4$summary.fitted.values$mode*
   100000/micro_v$populacao
 nbinomial_rate_test = nbinomial_rate_all[(20545 - 3852: 20544)]
 

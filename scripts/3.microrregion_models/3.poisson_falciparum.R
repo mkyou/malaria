@@ -22,7 +22,7 @@ micro_f$idArea = pmatch(
   duplicates.ok = T
 )
 
-micro_f$idArea2 = micro_v$idArea
+micro_f$idArea2 = micro_f$idArea
 
 #creating id interaction (between area and time)
 micro_f$idInteraction = as.numeric(interaction(micro_f$idArea, 
@@ -67,7 +67,7 @@ poisson_fit1 = inla(
   verbose = F
 )
 
-#DIC = 97850.85; DIC saturated = 60144.19; WAIC = 1840919.43; 
+#DIC = 97900.75; DIC saturated = 60193.01; WAIC = 1841888.79; 
 poisson_fit1 |> summary()
 #PIT com frequência de classes chegando próximo aos 6000
 hist(poisson_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
@@ -81,7 +81,7 @@ poisson_fit2 = inla(
   verbose = F
 )
 
-#DIC = 100922.26; DIC saturated = -4.33e+19; WAIC = 1715659.16
+#DIC = 99078.14; DIC saturated = 61372.83; WAIC = 1825404.53
 #ambas as variáveis significativas pelo intervalo de credibilidade
 poisson_fit2 |> summary()
 #PIT igual ao do modelo 1
@@ -96,7 +96,7 @@ poisson_fit3 = inla(
   verbose = F
 )
 
-#DIC = 65058.62; DIC saturated = -3.96e+22; WAIC = 65341.97
+#DIC = 65064.47; DIC saturated = 24195.11; WAIC = 65367.66
 #Melhora significativa em realação ao modelo anterior
 poisson_fit3 |> summary()
 #piora significativa no PIT do modelo
@@ -112,7 +112,7 @@ poisson_fit4 = inla(
   verbose = F
 )
 
-#DIC = 65122.09; DIC saturated = -3.96e+22; WAIC = 65479.33
+#DIC = 65087.94; DIC saturated = 24218.58; WAIC = 65479.40
 #piora em relação ao modelo anterior.
 #rhum não considerada significante. Rodando novamente sem ela.
 poisson_fit4 |> summary()

@@ -67,7 +67,7 @@ bell_fit1 = inla(
   verbose = F
 )
 
-#DIC = 233963.73; DIC saturado = 151603.82; WAIC = 1016623.62; 
+#DIC = 233963.63; DIC saturado = 151603.73; WAIC = 1016625.17; 
 bell_fit1 |> summary()
 #PIT com frequência de classes chegando próximo aos 6000
 hist(bell_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
@@ -81,7 +81,7 @@ bell_fit2 = inla(
   verbose = F
 )
 
-#DIC = 232787.60; DIC saturado = 150411.24; WAIC = 978055.88
+#DIC = 234279.49; DIC saturado = 151915.92; WAIC = 1028884.30
 #ambas as variáveis significativas pelo intervalo de credibilidade
 bell_fit2 |> summary()
 #PIT igual ao do modelo 1
@@ -96,7 +96,7 @@ bell_fit3 = inla(
   verbose = F
 )
 
-#DIC = 111402.48; DIC saturado = 27290.52; WAIC = 109727.26
+#DIC = 111419.25; DIC saturado = 27307.29; WAIC = 109818.58
 #Melhora significativa em realação ao modelo anterior
 bell_fit3 |> summary()
 #piora significativa no PIT do modelo
@@ -112,17 +112,17 @@ bell_fit4 = inla(
   verbose = F
 )
 
-#DIC = 111419.05; DIC saturado = 27307.08; WAIC = 109781.10
+#DIC = 111419.05; DIC saturado = 27302.40; WAIC = 109766.96
 #piora em relação ao modelo anterior.
 #ambas as covariáveis consideradas significantes
 bell_fit4 |> summary()
 #PIT levemente pior que o do modelo anterior também
 hist(bell_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
-#Ao menos em termos de DIC, o melhor modelo foi o 3.
+#Ao menos em termos de DIC, o melhor modelo foi o 4.
 
-#check fit3 predictions
-bell_rate_all = bell_fit3$summary.fitted.values$mode*
+#check fit4 predictions
+bell_rate_all = bell_fit4$summary.fitted.values$mode*
   100000/micro_v$populacao
 bell_rate_test = bell_rate_all[(20545 - 3852: 20544)]
 

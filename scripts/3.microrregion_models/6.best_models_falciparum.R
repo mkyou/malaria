@@ -81,8 +81,8 @@ poisson_fit3_rate_all = poisson_fit3$summary.fitted.values$mode*
 poi_rate_test = poisson_fit3_rate_all[(20545 - 3852: 20544)]
 
 #nbinomial
-nbinomial_fit3 = inla(
-  formula = formula3, family = 'nbinomial', data = micro_f,
+nbinomial_fit4 = inla(
+  formula = formula4, family = 'nbinomial', data = micro_f,
   working.directory = 'D:/INLA/',
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
@@ -90,82 +90,48 @@ nbinomial_fit3 = inla(
 )
 
 #nbinomial predicts
-nbinomial_fit3_rate_all = nbinomial_fit3$summary.fitted.values$mode*
+nbinomial_fit4_rate_all = nbinomial_fit4$summary.fitted.values$mode*
   100000/micro_f$populacao
-nbinomial_rate_test = nbinomial_fit3_rate_all[(20545 - 3852: 20544)]
-
-#zeroinflatedpoisson
-zeroinflatedpoisson1_fit2 = inla(
-  formula = formula2, family = 'zeroinflatedpoisson1', data = micro_f,
-  working.directory = 'D:/INLA/',
-  control.predictor = list(compute = T, link = 1),
-  control.compute = list(dic = T, waic = T, cpo = T),
-  verbose = F
-)
-
-#zip predicts
-zero_poi_fit3_rate_all = zeroinflatedpoisson1_fit2$summary.fitted.values$mode*
-  100000/micro_f$populacao
-zero_poi_rate_test = zero_poi_fit3_rate_all[(20545 - 3852: 20544)]
-
-#zeroinflatednbinomial
-zeroinflatednbinomial1_fit4 = inla(
-  formula = formula4, family = 'zeroinflatednbinomial1', data = micro_f,
-  working.directory = 'D:/INLA/',
-  control.predictor = list(compute = T, link = 1),
-  control.compute = list(dic = T, waic = T, cpo = T),
-  verbose = F
-)
-
-#zinb predicts
-zinb_fit4_rate_all = zeroinflatednbinomial1_fit4$summary.fitted.values$mode*
-  100000/micro_f$populacao
-zero_nbinomial_rate_test = zinb_fit4_rate_all[(20545 - 3852: 20544)]
+nbinomial_rate_test = nbinomial_fit4_rate_all[(20545 - 3852: 20544)]
 
 #tables of errors----------------------------------------------------------
 test_errors_falciparum = dplyr::tibble(
-  dist = c('bell', 'poisson', 'nbinomial', 'zero_poisson'),
+  dist = c('bell', 'poisson', 'nbinomial'),
   
   mbe = c(
     mbe(real_rates_test, bell_rate_test),
     mbe(real_rates_test, poi_rate_test),
-    mbe(real_rates_test, nbinomial_rate_test),
-    mbe(real_rates_test, zero_poi_rate_test)
+    mbe(real_rates_test, nbinomial_rate_test)
   ),
   
   nrmse = c(
     nrmse(real_rates_test, bell_rate_test),
     nrmse(real_rates_test, poi_rate_test),
-    nrmse(real_rates_test, nbinomial_rate_test),
-    nrmse(real_rates_test, zero_poi_rate_test)
+    nrmse(real_rates_test, nbinomial_rate_test)
   ),
   
   rae = c(
     rae(real_rates_test, bell_rate_test),
     rae(real_rates_test, poi_rate_test),
-    rae(real_rates_test, nbinomial_rate_test),
-    rae(real_rates_test, zero_poi_rate_test)
+    rae(real_rates_test, nbinomial_rate_test)
   ),
   
   rmsle = c(
     rmsle(real_rates_test, bell_rate_test),
     rmsle(real_rates_test, poi_rate_test),
-    rmsle(real_rates_test, nbinomial_rate_test),
-    rmsle(real_rates_test, zero_poi_rate_test)
+    rmsle(real_rates_test, nbinomial_rate_test)
   ),
   
   rse = c(
     rse(real_rates_test, bell_rate_test),
     rse(real_rates_test, poi_rate_test),
-    rse(real_rates_test, nbinomial_rate_test),
-    rse(real_rates_test, zero_poi_rate_test)
+    rse(real_rates_test, nbinomial_rate_test)
   ),
   
   cor = c(
     cor(real_rates_test, bell_rate_test),
     cor(real_rates_test, poi_rate_test),
-    cor(real_rates_test, nbinomial_rate_test),
-    cor(real_rates_test, zero_poi_rate_test)
+    cor(real_rates_test, nbinomial_rate_test)
   )
   
 )
@@ -183,4 +149,5 @@ micro_f |>
     codUF, siglaUF, codMicroRes, nomeMicroRes, ano, mes,
     real, preds
   ) |> write_csv('results/preds_microrregion_falciparum_df.csv')
+
 

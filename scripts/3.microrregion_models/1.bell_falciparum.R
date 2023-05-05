@@ -22,7 +22,7 @@ micro_f$idArea = pmatch(
   duplicates.ok = T
 )
 
-micro_f$idArea2 = micro_v$idArea
+micro_f$idArea2 = micro_f$idArea
 
 #creating id interaction (between area and time)
 micro_f$idInteraction = as.numeric(interaction(micro_f$idArea, 
@@ -67,7 +67,7 @@ bell_fit1 = inla(
   verbose = F
 )
 
-#DIC = 136842.25; DIC saturated = 86483.33; WAIC = 331305.95; 
+#DIC = 136855.05; DIC saturated = 86495.64; WAIC = 331364.65; 
 bell_fit1 |> summary()
 #PIT com frequência de classes chegando próximo aos 5000
 hist(bell_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
@@ -81,7 +81,7 @@ bell_fit2 = inla(
   verbose = F
 )
 
-#DIC = 135473.12; DIC saturated = 85125.88; WAIC = 335196.54
+#DIC = 137050.85; DIC saturated = 86688.72; WAIC = 324792.15
 #ambas as variáveis significativas pelo intervalo de credibilidade
 bell_fit2 |> summary()
 #PIT igual ao do modelo 1
@@ -96,7 +96,7 @@ bell_fit3 = inla(
   verbose = F
 )
 
-#DIC = 73000.16; DIC saturated = 22088.34; WAIC = 72143.11
+#DIC = 72995.36; DIC saturated = 22083.53; WAIC = 72169.49
 #Melhora significativa em realação ao modelo anterior
 bell_fit3 |> summary()
 #piora significativa no PIT do modelo
@@ -112,7 +112,7 @@ bell_fit4 = inla(
   verbose = F
 )
 
-#DIC = 73078.64; DIC saturated = 22166.64; WAIC = 72250.26
+#DIC = 73029.29; DIC saturated = 22117.46; WAIC = 72251.96
 #piora em relação ao modelo anterior.
 #rhum não considerada significante. Rodando novamente sem ela.
 bell_fit4 |> summary()
