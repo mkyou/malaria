@@ -28,7 +28,7 @@ micro_v$idArea2 = micro_v$idArea
 micro_v$idInteraction = as.numeric(interaction(micro_v$idArea, 
                                                micro_v$idMes))
 
-real_rates_all = micro_v$numCasos*100000/micro_v$populacao
+real_rates_all = micro_v$numCasos*1000/micro_v$populacao
 real_rates_test = real_rates_all[(20545 - 3852: 20544)]
 
 
@@ -67,7 +67,7 @@ bell_fit1 = inla(
   verbose = F
 )
 
-#DIC = 233963.63; DIC saturado = 151603.73; WAIC = 1016625.17; 
+#DIC = 233963.63; DIC saturado = 151603.73; WAIC = 1016623.69; 
 bell_fit1 |> summary()
 #PIT com frequência de classes chegando próximo aos 6000
 hist(bell_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
@@ -81,7 +81,7 @@ bell_fit2 = inla(
   verbose = F
 )
 
-#DIC = 234279.49; DIC saturado = 151915.92; WAIC = 1028884.30
+#DIC = 234280.40; DIC saturado = 151916.78; WAIC = 1029008.68
 #ambas as variáveis significativas pelo intervalo de credibilidade
 bell_fit2 |> summary()
 #PIT igual ao do modelo 1
@@ -112,7 +112,7 @@ bell_fit4 = inla(
   verbose = F
 )
 
-#DIC = 111419.05; DIC saturado = 27302.40; WAIC = 109766.96
+#DIC = 111414.37; DIC saturado = 27302.40; WAIC = 109766.96
 #piora em relação ao modelo anterior.
 #ambas as covariáveis consideradas significantes
 bell_fit4 |> summary()
@@ -123,7 +123,7 @@ hist(bell_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
 #check fit4 predictions
 bell_rate_all = bell_fit4$summary.fitted.values$mode*
-  100000/micro_v$populacao
+  1000/micro_v$populacao
 bell_rate_test = bell_rate_all[(20545 - 3852: 20544)]
 
 tibble(

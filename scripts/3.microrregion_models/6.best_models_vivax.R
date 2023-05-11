@@ -29,7 +29,7 @@
   micro_v$idInteraction = as.numeric(interaction(micro_v$idArea, 
                                                  micro_v$idMes))
   
-  real_rates_all = micro_v$numCasos*100000/micro_v$populacao
+  real_rates_all = micro_v$numCasos*1000/micro_v$populacao
   real_rates_test = real_rates_all[(20545 - 3852: 20544)]
   
   #formulas---------------------------------------------------------------
@@ -64,7 +64,7 @@
   
   #bell predicts
   bell_fit3_rate_all = bell_fit3$summary.fitted.values$mode*
-    100000/micro_v$populacao
+    1000/micro_v$populacao
   bell_rate_test = bell_fit3_rate_all[(20545 - 3852: 20544)]
   
   #poisson
@@ -78,7 +78,7 @@
   
   #poisson predicts
   poisson_fit3_rate_all = poisson_fit3$summary.fitted.values$mode*
-    100000/micro_v$populacao
+    1000/micro_v$populacao
   poi_rate_test = poisson_fit3_rate_all[(20545 - 3852: 20544)]
   
   #nbinomial
@@ -92,7 +92,7 @@
   
   #nbinomial predicts
   nbinomial_fit4_rate_all = nbinomial_fit4$summary.fitted.values$mode*
-    100000/micro_v$populacao
+    1000/micro_v$populacao
   nbinomial_rate_test = nbinomial_fit4_rate_all[(20545 - 3852: 20544)]
   
   

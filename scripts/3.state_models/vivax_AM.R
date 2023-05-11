@@ -27,7 +27,7 @@ am_v$idArea2 = am_v$idArea
 am_v$idInteraction = as.numeric(interaction(am_v$idArea, 
                                                am_v$idMes))
 
-real_rates_all = am_v$numCasos*100000/am_v$populacao
+real_rates_all = am_v$numCasos*1000/am_v$populacao
 real_rates_test = real_rates_all[(11905 - 2232: 11904)]
 
 #formulas------------------------------------------------------------------
@@ -51,7 +51,7 @@ bell_fit |> summary()
 hist(bell_fit$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
 #bell predicted rate all and test
-bell_rate_all = bell_fit$summary.fitted.values$mode*100000/am_v$populacao
+bell_rate_all = bell_fit$summary.fitted.values$mode*1000/am_v$populacao
 bell_rate_test = bell_rate_all[(11905 - 2232: 11904)]
 
 
