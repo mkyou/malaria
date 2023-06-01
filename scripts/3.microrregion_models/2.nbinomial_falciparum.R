@@ -116,6 +116,8 @@ nbinomial_fit4 = inla(
 #melhora um pouco em relação ao modelo anterior.
 #nenhuma das duas consideradas significantes, mas contribuem para 
 #a queda do DIC
+#rhum - 0.025: -0.001; mean: 0.001; 0.975: 0.004
+#temp - 0.025: -0.001; mean: 0.006; 0.975: 0.014
 nbinomial_fit4 |> summary()
 #PIT levemente pior que o do modelo anterior também
 hist(nbinomial_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')

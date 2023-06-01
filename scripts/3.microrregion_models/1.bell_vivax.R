@@ -83,6 +83,8 @@ bell_fit2 = inla(
 
 #DIC = 234280.40; DIC saturado = 151916.78; WAIC = 1029008.68
 #ambas as variáveis significativas pelo intervalo de credibilidade
+#rhum - 0.025: 0.003; mean: 0.003; 0.975: 0.004
+#temp - 0.025: 0.023; mean: 0.017; 0.975: 0.030
 bell_fit2 |> summary()
 #PIT igual ao do modelo 1
 hist(bell_fit2$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
@@ -115,6 +117,8 @@ bell_fit4 = inla(
 #DIC = 111414.37; DIC saturado = 27302.40; WAIC = 109766.96
 #piora em relação ao modelo anterior.
 #ambas as covariáveis consideradas significantes
+#rhum - 0.025: 0.002; mean: 0.004; 0.975: 0.006
+#temp - 0.025: 0.001; mean: 0.007; 0.975: 0.013
 bell_fit4 |> summary()
 #PIT levemente pior que o do modelo anterior também
 hist(bell_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')

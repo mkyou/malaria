@@ -114,7 +114,9 @@ bell_fit4 = inla(
 
 #DIC = 73029.29; DIC saturated = 22117.46; WAIC = 72251.96
 #piora em relação ao modelo anterior.
-#rhum não considerada significante. Rodando novamente sem ela.
+#nenhuma das variáveis é significante
+#rhum - 0.025: -0.002; mean: 0.001; 0.975: 0.003
+#temp - 0.025: -0.001; mean: 0.007; 0.975: 0.015
 bell_fit4 |> summary()
 #PIT levemente pior que o do modelo anterior também
 hist(bell_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')

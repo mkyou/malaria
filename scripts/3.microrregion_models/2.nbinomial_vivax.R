@@ -115,9 +115,13 @@ nbinomial_fit4 = inla(
 #DIC = 130166.51; WAIC = 130598.41
 #piora em relação ao modelo anterior.
 #ambas as covariáveis consideradas significantes
+#rhum - 0.025: 0.003; mean: 0.005; 0.975: 0.007
+#temp - 0.025: +0.000; mean: 0.006; 0.975: 0.012
 nbinomial_fit4 |> summary()
 #PIT levemente pior que o do modelo anterior também
 hist(nbinomial_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
+
+nbinomial_fit4$summary.fixed
 
 #Ao menos em termos de DIC, o melhor modelo foi o 3.
 

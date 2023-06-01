@@ -50,8 +50,7 @@ df_vivax |> filter((mes == '06' | mes == '11') &
   facet_wrap(~ano + mes) +
   theme_bw() + 
   theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank()) +
-  labs(subtitle = 'Erros nominais de predição - Ajuste original')
+        axis.text.y = element_blank()) 
 
 ggsave('results/erros_vivax_2018.png')
 
@@ -66,7 +65,6 @@ df_vivax |> filter((mes == '06' | mes == '11') &
   facet_wrap(~ano + mes) +
   theme_bw() + 
   theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank()) +
-  labs(subtitle = 'Erros nominais de predição - Ajuste corrigido')
+        axis.text.y = element_blank()) 
 
 ggsave('results/erros_vivax_2018_corrigido.png')
