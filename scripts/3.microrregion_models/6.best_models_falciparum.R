@@ -141,13 +141,15 @@ test_errors_falciparum |> View()
 test_errors_falciparum |> 
   write_csv('results/test_metrics_microrregion_falciparum.csv')
 
-micro_f$preds = poisson_fit3_rate_all
+micro_f$bell_preds = bell_fit3_rate_all
+micro_f$nbinomial_preds = nbinomial_fit4_rate_all
+micro_f$poisson_preds = poisson_fit3_rate_all
 micro_f$real = real_rates_all
 
 micro_f |>
   select(
     codUF, siglaUF, codMicroRes, nomeMicroRes, ano, mes,
-    real, preds
+    real, bell_preds, nbinomial_preds, poisson_preds
   ) |> write_csv('results/preds_microrregion_falciparum_df.csv')
 
 

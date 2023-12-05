@@ -142,11 +142,13 @@
   test_errors_vivax |> View()
   test_errors_vivax |> write_csv('results/test_metrics_microrregion_vivax.csv')
   
-  micro_v$preds = bell_fit3_rate_all
+  micro_v$bell_preds = bell_fit3_rate_all
+  micro_v$nbinomial_preds = nbinomial_fit4_rate_all
+  micro_v$poisson_preds = poisson_fit3_rate_all
   micro_v$real = real_rates_all
   
   micro_v |>
     select(
       codUF, siglaUF, codMicroRes, nomeMicroRes, ano, mes,
-      real, preds
+      real, bell_preds, nbinomial_preds, poisson_preds
     ) |> write_csv('results/preds_microrregion_vivax_df.csv')
