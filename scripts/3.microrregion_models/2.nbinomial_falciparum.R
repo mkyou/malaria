@@ -2,20 +2,12 @@ library(readr)
 library(INLA)
 library(dplyr)
 
-#preparing data------------------------------------------------------------
-#path
 micro_path = 'outputs/micro_map.graph'
-
-#read data
 micro_f = read_csv('data/output_data/micro_reg_f_df.csv')
-
-#spatial data
 micro_spatial = read_csv('data/spatial_data/micro_map.csv')
 
-#adjacency matrix
 image(inla.graph2matrix(inla.read.graph(micro_path)), xlab = '', ylab = '')
 
-#creating id area
 micro_f$idArea = pmatch(
   micro_f$codMicroRes,
   micro_spatial$code_micro,
@@ -24,110 +16,87 @@ micro_f$idArea = pmatch(
 
 micro_f$idArea2 = micro_f$idArea
 
-#creating id interaction (between area and time)
-micro_f$idInteraction = as.numeric(interaction(micro_f$idArea, 
+micro_f$idInteraction = as.numeric(interaction(micro_f$idArea,
                                                micro_f$idMes))
 
 real_rates_all = micro_f$numCasos*100000/micro_f$populacao
-real_rates_test = real_rates_all[(20545 - 3852: 20544)]
+test_idx = which(micro_f$ano >= 2016)
+real_rates_test = real_rates_all[test_idx]
 
 
-#formulas------------------------------------------------------------------
-formula1 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
-  f(ano, model = 'rw1', constr = T) + 
+formula1 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
+  f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
   offset(log(populacao))
 
-formula2 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
+formula2 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
-  f(idMes, model = 'rw1') + 
+  f(idMes, model = 'rw1') +
   rhum + temp + offset(log(populacao))
 
-formula3 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
+formula3 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
   f(idInteraction, model = 'iid') + offset(log(populacao))
 
-formula4 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
+formula4 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
   f(idMes, model = 'rw1') +
   f(idInteraction, model = 'iid') +
   temp + rhum + offset(log(populacao))
 
-#nbinomial fit-------------------------------------------------------------------
 nbinomial_fit1 = inla(
   formula = formula1, family = 'nbinomial', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#DIC = 84406.18; WAIC = 84471.37; 
 nbinomial_fit1 |> summary()
-#PIT com frequência de classes chegando próximo aos 5000, não balanceado
 hist(nbinomial_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
-#formula2
 nbinomial_fit2 = inla(
   formula = formula2, family = 'nbinomial', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#DIC = 84398.52; WAIC = 84465.13
-#ambas as variáveis significativas pelo intervalo de credibilidade
 nbinomial_fit2 |> summary()
-#PIT igual ao do modelo 1
 hist(nbinomial_fit2$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
-#formula3
 nbinomial_fit3 = inla(
   formula = formula3, family = 'nbinomial', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#DIC = 83283.62; WAIC = 83531.89
-#Melhora significativa em realação ao modelo anterior
 nbinomial_fit3 |> summary()
-#piora significativa no PIT do modelo
 hist(nbinomial_fit3$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
-
-#formula4
 nbinomial_fit4 = inla(
   formula = formula4, family = 'nbinomial', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#DIC = 83208.45; WAIC = 83525.96
-#melhora um pouco em relação ao modelo anterior.
-#nenhuma das duas consideradas significantes, mas contribuem para 
-#a queda do DIC
-#rhum - 0.025: -0.001; mean: 0.001; 0.975: 0.004
-#temp - 0.025: -0.001; mean: 0.006; 0.975: 0.014
 nbinomial_fit4 |> summary()
-#PIT levemente pior que o do modelo anterior também
 hist(nbinomial_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
 
-#Ao menos em termos de DIC, o melhor modelo foi o 3.
-
-#check fit3 predictions
+#best model by DIC/WAIC: fit4
 nbinomial_rate_all = nbinomial_fit4$summary.fitted.values$mode*
   100000/micro_f$populacao
-nbinomial_rate_test = nbinomial_rate_all[(20545 - 3852: 20544)]
+nbinomial_rate_test = nbinomial_rate_all[test_idx]
 
 tibble(
   dist = 'nbinomial',

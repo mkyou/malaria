@@ -3,7 +3,6 @@ library(readr)
 library(ggplot2)
 library(tidyr)
 
-#get data in wide format to make easier plots
 df_vivax_pre = read_csv('results/preds_microrregion_vivax_df.csv') |>
   mutate(mes = sprintf('%02d', mes)) |>
   mutate(difs_bell = real - bell_preds) |>
@@ -22,28 +21,25 @@ df_vivax_train = df_vivax_pre |> filter(ano < 2018 & ano > 2015)
 plot(df_vivax_train$bell_preds, df_vivax_train$real)
 
 #the first model is good to predict 0 values. So the pred must be greater than
-#0.005 (the max pred value when the real incidence is 0)
+#2 (visually calibrated on rate per 100000; above this, bell systematically
+#underpredicts and benefits from multiplicative correction)
 
-df_vivax_teste = df_vivax_pre |> filter(ano == 2018 & bell_preds > 0.005)
+df_vivax_teste = df_vivax_pre |> filter(ano == 2018 & bell_preds > 2)
 df_vivax_train = df_vivax_pre |> filter(ano < 2018 & ano > 2015 & 
-                                          bell_preds > 0.005)
+                                          bell_preds > 2)
 
-#okay: 10.9515 is the preds coefficient.
 fit = lm(real ~ -1 + bell_preds, data = df_vivax_train)
 summary(fit)
 
-#creating new_preds column
 df_vivax_pre = df_vivax_pre |>
-  mutate(new_bell_preds = ifelse(ano == 2018 & bell_preds > 0.005, 
+  mutate(new_bell_preds = ifelse(ano == 2018 & bell_preds > 2, 
                             bell_preds*fit$coefficients[1], bell_preds))
 
-#creating new_difs and new_difs_rmsle columns
 df_vivax_pre = df_vivax_pre |>
   mutate(new_difs_bell = real - new_bell_preds) |>
   mutate(new_difs_rmsle_bell = sqrt((log(real + 1) - 
                                        log(new_bell_preds + 1))^2))
 
-#get spatial information for spatial plot
 df_vivax = geobr::read_micro_region(year = 2017, simplified = F) |>
   select('code_micro', 'name_micro') |>
   inner_join(
@@ -52,7 +48,6 @@ df_vivax = geobr::read_micro_region(year = 2017, simplified = F) |>
     multiple = 'all'
   )
 
-#vivax_preds
 df_vivax |> filter((mes == '06' | mes == '11') & 
                      (ano == 2018)) |>
   ggplot() +
@@ -67,7 +62,6 @@ df_vivax |> filter((mes == '06' | mes == '11') &
 
 ggsave('results/erros_vivax_2018.png')
 
-#vivax_preds
 df_vivax |> filter((mes == '06' | mes == '11') & 
                      (ano == 2018)) |>
   ggplot() +
@@ -82,7 +76,6 @@ df_vivax |> filter((mes == '06' | mes == '11') &
 
 ggsave('results/erros_vivax_2018_corrigido.png')
 
-#let's evaluate all the predicts now
 real = df_vivax_pre |> filter(ano == 2018) |> select(real) |> pull()
 
 bell = df_vivax_pre |> filter(ano == 2018) |> select(bell_preds) |> 
@@ -97,7 +90,6 @@ poi = df_vivax_pre |> filter(ano == 2018) |> select(poisson_preds) |>
 new_bell = df_vivax_pre |> filter(ano == 2018) |> select(new_bell_preds) |> 
   pull()
 
-#get metrics
 test_errors_vivax = dplyr::tibble(
   dist = c('bell', 'poisson', 'nbinomial', 'new_bell'),
   
@@ -145,7 +137,6 @@ test_errors_vivax = dplyr::tibble(
   
 )
 
-#view results
 test_errors_vivax |> View()
 
 test_errors_vivax |> 

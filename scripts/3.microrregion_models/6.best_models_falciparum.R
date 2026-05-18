@@ -2,20 +2,14 @@ library(readr)
 library(INLA)
 library(dplyr)
 
-#preparing data------------------------------------------------------------
-#path
 micro_path = 'outputs/micro_map.graph'
 
-#read data
 micro_f = read_csv('data/output_data/micro_reg_f_df.csv')
 
-#spatial data
 micro_spatial = read_csv('data/spatial_data/micro_map.csv')
 
-#adjacency matrix
 image(inla.graph2matrix(inla.read.graph(micro_path)), xlab = '', ylab = '')
 
-#creating id area
 micro_f$idArea = pmatch(
   micro_f$codMicroRes,
   micro_spatial$code_micro,
@@ -24,14 +18,13 @@ micro_f$idArea = pmatch(
 
 micro_f$idArea2 = micro_f$idArea
 
-#creating id interaction (between area and time)
 micro_f$idInteraction = as.numeric(interaction(micro_f$idArea, 
                                                micro_f$idMes))
 
-real_rates_all = micro_f$numCasos*1000/micro_f$populacao
-real_rates_test = real_rates_all[(20545 - 3852: 20544)]
+real_rates_all = micro_f$numCasos*100000/micro_f$populacao
+test_idx = which(micro_f$ano >= 2016)
+real_rates_test = real_rates_all[test_idx]
 
-#formulas---------------------------------------------------------------
 formula2 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) + 
   f(ano, model = 'rw1', constr = T) +
   f(idArea, model = 'bym2', graph = micro_path) +
@@ -51,50 +44,42 @@ formula4 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
   f(idInteraction, model = 'iid') +
   rhum + temp + offset(log(populacao))
 
-#best vivax models-------------------------------------------------------
-#bell
 bell_fit3 = inla(
   formula = formula3, family = 'bell', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#bell predicts
 bell_fit3_rate_all = bell_fit3$summary.fitted.values$mode*
-  1000/micro_f$populacao
-bell_rate_test = bell_fit3_rate_all[(20545 - 3852: 20544)]
+  100000/micro_f$populacao
+bell_rate_test = bell_fit3_rate_all[test_idx]
 
-#poisson
 poisson_fit3 = inla(
   formula = formula3, family = 'poisson', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#poisson predicts
 poisson_fit3_rate_all = poisson_fit3$summary.fitted.values$mode*
-  1000/micro_f$populacao
-poi_rate_test = poisson_fit3_rate_all[(20545 - 3852: 20544)]
+  100000/micro_f$populacao
+poi_rate_test = poisson_fit3_rate_all[test_idx]
 
-#nbinomial
 nbinomial_fit4 = inla(
   formula = formula4, family = 'nbinomial', data = micro_f,
-  working.directory = 'D:/INLA/',
+  working.directory = tempdir(),
   control.predictor = list(compute = T, link = 1),
   control.compute = list(dic = T, waic = T, cpo = T),
   verbose = F
 )
 
-#nbinomial predicts
 nbinomial_fit4_rate_all = nbinomial_fit4$summary.fitted.values$mode*
-  1000/micro_f$populacao
-nbinomial_rate_test = nbinomial_fit4_rate_all[(20545 - 3852: 20544)]
+  100000/micro_f$populacao
+nbinomial_rate_test = nbinomial_fit4_rate_all[test_idx]
 
-#tables of errors----------------------------------------------------------
 test_errors_falciparum = dplyr::tibble(
   dist = c('bell', 'poisson', 'nbinomial'),
   
@@ -136,7 +121,6 @@ test_errors_falciparum = dplyr::tibble(
   
 )
 
-#write results
 test_errors_falciparum |> View()
 test_errors_falciparum |> 
   write_csv('results/test_metrics_microrregion_falciparum.csv')
