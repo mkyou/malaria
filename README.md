@@ -71,18 +71,20 @@ with/without interaction), fit for each likelihood family.
 ### Likelihood families
 
 Three families are routinely fit and compared: **Poisson**, **negative
-binomial**, and **Bell**. Two zero-inflated variants (zero-inflated
-Poisson and zero-inflated negative binomial) are kept in the repo for
-reference but were excluded from the current rerun because they did not
-improve fit relative to their non-inflated counterparts.
+binomial**, and **Bell**. Earlier iterations of the project also fit
+zero-inflated Poisson and zero-inflated negative binomial variants, but
+they did not improve fit relative to their non-inflated counterparts and
+were retired from the pipeline.
 
 ### Model selection
 
 The four formulas × three families are evaluated with **DIC** and
-**WAIC**. The selected formula per family is then used by the
-"best models" script (`6.best_models_*.R`) to generate the test-period
-predictions consumed by the downstream analysis. The choice of best model
-is recorded as a comment at the end of each fitting script.
+**WAIC**. Per-fit summaries (DIC/WAIC/CPO and fixed-effect posteriors)
+are written to `results/model_selection.csv` by the helper
+`scripts/model_selection_io.R`, so cross-family comparisons can be made
+from one consolidated table. The selected formula per family is then
+used by the "best models" script (`4.best_models_*.R`) to generate the
+test-period predictions consumed by the downstream analysis.
 
 ### Train / test split
 
@@ -117,10 +119,9 @@ needs them.
 1. scripts/1.data_wrangling.R             # joins climate/cities -> data/output_data/
 2. scripts/2.spatial_data_wrangling.R     # (optional — outputs/*.graph already versioned)
 3. scripts/3.microrregion_models/         # INLA fits per micro-region
-   3a. 0.vivax_microrregion_default.R     # default-formula baseline
-   3b. 1.bell_*.R / 2.nbinomial_*.R /     # per-family selection (DIC/WAIC)
-       3.poisson_*.R
-   3c. 6.best_models_*.R                  # refits the best formula per family
+   3a. 1.bell_*.R / 2.nbinomial_*.R /     # per-family selection (DIC/WAIC),
+       3.poisson_*.R                      # logged to results/model_selection.csv
+   3b. 4.best_models_*.R                  # refits the best formula per family
                                           # and writes the prediction CSVs
 4. scripts/4.error_analysis.R             # error maps
 5. scripts/5.1.error_correction_*.R       # post-hoc multiplicative correction
@@ -146,8 +147,98 @@ Rscript scripts/1.data_wrangling.R
 # pick a model to fit, e.g.:
 Rscript scripts/3.microrregion_models/2.nbinomial_falciparum.R
 # generate the prediction CSVs used downstream:
-Rscript -e 'source("scripts/loss_functions.R"); source("scripts/3.microrregion_models/6.best_models_vivax.R")'
+Rscript scripts/3.microrregion_models/4.best_models_vivax.R
 ```
+
+## Results
+
+All numbers below are on a held-out window with rates in **cases per
+100 000 inhabitants**. Per-fit DIC/WAIC/CPO across all four formulas and
+both species are in `results/model_selection.csv`; per-species test-set
+metrics are in `results/test_metrics_microrregion_{vivax,falciparum}.csv`
+(written by `4.best_models_*` over `ano >= 2016`, then overwritten by
+`5.1`/`5.2` with `ano == 2018` plus the corrected variant) and
+`results/test_metrics_am_vivax.csv` (`ano >= 2016`).
+
+### Best-fit formula per family (DIC)
+
+| species    | Bell | Poisson | Negative binomial |
+|------------|:----:|:-------:|:-----------------:|
+| vivax      | m3   | m3      | m3                |
+| falciparum | m3   | m2      | m4                |
+
+`mX` indexes the four formulas in the order they appear in the
+methodology (with/without climate covariates × with/without space–time
+interaction). For *falciparum* the Poisson winner is `m2` (climate
+covariates, no interaction); for *vivax*, every family settles on `m3`
+(interaction, no covariates), which means the IID space–time term
+absorbs most of the climate signal in this dataset.
+
+### Per-species pick on the test set
+
+#### *P. vivax* — micro-region (Bell, m3)
+
+The Bell fit dominates the per-species comparison and is the model
+consumed downstream:
+
+| variant             | MBE   | NRMSE  | RAE   | RMSLE | RSE   | cor    |
+|---------------------|------:|-------:|------:|------:|------:|-------:|
+| bell                |  95.2 | 0.1028 | 0.609 |  1.33 | 0.99  | 0.779  |
+| poisson             |  97.5 | 0.1043 | 0.622 |  1.42 | 1.02  | 0.779  |
+| nbinomial           |  97.6 | 0.1044 | 0.623 |  1.43 | 1.03  | 0.780  |
+| bell + correction   | **15.8** | **0.0652** | **0.417** | **1.07** | **0.40** | 0.779  |
+
+The piecewise multiplicative correction (§5.1) collapses the mean bias
+by ~6× and cuts the relative-squared-error by ~60% without sacrificing
+correlation — `bell_preds × 7.88` for cells where the raw prediction
+exceeds 2 per 100 000.
+
+#### *P. falciparum* — micro-region (Poisson, m2)
+
+`poisson_2` is the per-family DIC winner and is the model consumed
+downstream:
+
+| variant                | MBE   | NRMSE  | RAE   | RMSLE | RSE   | cor    |
+|------------------------|------:|-------:|------:|------:|------:|-------:|
+| bell                   |  9.86 | 0.0972 | 0.569 | 0.930 | 1.00  | 0.505  |
+| poisson                | 10.03 | 0.0978 | 0.579 | 1.032 | 1.01  | 0.470  |
+| nbinomial              | 10.27 | 0.0982 | 0.584 | 1.124 | 1.02  | 0.529  |
+| poisson + correction   | 10.15 | 0.0975 | 0.581 | 1.169 | 1.01  | 0.406  |
+
+The three families are within striking distance on the test set, and
+the piecewise correction (three regimes: `<1`, `[1, 4]`, `>4`) does not
+clearly help — relative-error metrics barely move and `cor` drops by
+~0.06. The decision to keep `poisson_2` is anchored on DIC and on its
+parsimony (climate covariates, no space–time interaction), not on a
+clean test-set win.
+
+#### *P. vivax* — Amazonas state (Bell, m3)
+
+A finer-grain Amazonas-state sanity check (`scripts/3.state_models/vivax_AM.R`):
+
+| variant | MBE   | NRMSE  | RAE   | RMSLE | RSE   | cor    |
+|---------|------:|-------:|------:|------:|------:|-------:|
+| bell    | 239.1 | 0.0989 | 0.753 |  1.82 | 1.12  | 0.524  |
+
+Larger MBE and lower correlation than at the micro-region grain are
+expected: aggregating to the larger spatial unit smooths the response,
+whereas the state-level Amazonas model resolves municipality-level
+spikes that the additive structure cannot fully explain.
+
+### Artefacts
+
+- `results/preds_microrregion_{vivax,falciparum}_df.csv` — per-cell
+  predictions for the three families plus the corrected prediction.
+- `results/preds_am_vivax_df.csv` — Bell predictions at the
+  AM-municipality grain.
+- `results/erros_*_2018.png` / `results/erros_*_2018_corrigido.png` —
+  spatial maps of nominal error before/after the multiplicative
+  correction.
+- `results/erros_*_rsle.png` — RMSLE maps for the selected species
+  predictor.
+
+A longer commentary on covariate-significance shifts and the
+intra-family DIC reranking is in `refactor_changes.md`.
 
 ## Future work
 

@@ -4,7 +4,7 @@ Living document. Lists every change introduced on the branch relative to
 `main`, grouped by topic, with impact on results where applicable.
 Updated as new model runs complete.
 
-Last update: 2026-05-19.
+Last update: 2026-05-19 (rev 4).
 
 ---
 
@@ -17,23 +17,30 @@ The branch consolidates three blocks of work:
 2. **Rate-scale standardization and pipeline cleanup** — all modelling
    and error-analysis code now operates on cases per 100 000
    inhabitants; obsolete assets removed.
-3. **INLA stability fixes** *(this session, uncommitted)* —
-   `nbinomial` models stopped fitting after the migration; a PC prior
-   on `f(idInteraction, model = 'iid')` plus a set of memory/safety
-   guards make them tractable again.
-4. **Zero-inflated families retired** *(this session, uncommitted)* —
-   the four `zeroinflatedpoisson` / `zeroinflatednbinomial` scripts
-   were removed from the pipeline, and `6.best_models_*` was renamed
-   to `4.best_models_*` to fill the gap.
+3. **INLA stability fixes** *(commit `7170683`)* — `nbinomial` models
+   stopped fitting after the migration; a PC prior on
+   `f(idInteraction, model = 'iid')` plus a set of memory/safety guards
+   make them tractable again.
+4. **Zero-inflated families retired** *(commit `7170683`)* — the four
+   `zeroinflatedpoisson` / `zeroinflatednbinomial` scripts were removed
+   from the pipeline, and `6.best_models_*` was renamed to
+   `4.best_models_*` to fill the gap.
+5. **Error-correction re-run and AM re-fit** *(commit `7170683`)* —
+   `4.error_analysis.R`, `5.1.error_correction_vivax.R`,
+   `5.2.error_correction_falciparum.R`, and
+   `scripts/3.state_models/vivax_AM.R` re-run end-to-end against the
+   new prediction CSVs; downstream metrics CSVs and PNG maps refreshed.
 
 Commits on the branch relative to `main`:
 
 - `44abe09` — refactor: standardize rate scale, migrate to Mendeley
   data source, and tidy pipeline.
-- *(uncommitted)* — INLA stability fixes for `nbinomial`, helper
+- `7170683` — refactor: drop zero-inflated models, stabilize INLA fits,
+  and refresh results (PC prior, memory guards,
   `scripts/model_selection_io.R`, `results/model_selection.csv`,
-  `4.best_models_*` adjustments, and removal of the zero-inflated
-  scripts.
+  rename `6.best_models_*` → `4.best_models_*`, re-run of error
+  analysis / correction / AM scripts, regenerated test metrics and
+  PNG maps).
 
 ---
 
@@ -104,7 +111,9 @@ non-comparable. The entire pipeline was unified to **per 100 000**:
 - `scripts/3.microrregion_models/4.best_models_{falciparum,vivax}.R`
   (renamed from `6.best_models_*` after the zero-inflated scripts
   were removed).
-- `scripts/3.state_models/vivax_AM.R` (edited only; not re-run).
+- `scripts/3.state_models/vivax_AM.R` (edited and re-run in commit
+  `7170683`; refreshes `results/preds_am_vivax_df.csv` and
+  `results/test_metrics_am_vivax.csv`).
 
 ### 3.1 Piecewise correction thresholds
 
@@ -143,7 +152,7 @@ Downstream:
 
 ---
 
-## 5. INLA stability fixes (this session, uncommitted)
+## 5. INLA stability fixes (commit `7170683`)
 
 ### 5.1 Symptom
 
@@ -322,90 +331,94 @@ zero-coverage credible interval.
 
 ### 6.4 Per-species choice from test metrics
 
-Source: `results/test_metrics_microrregion_{falciparum,vivax}.csv`.
-Each row is one family's DIC pick. Smaller is better for everything
+Source: `results/test_metrics_microrregion_{falciparum,vivax}.csv` as
+rewritten by `5.1.error_correction_vivax.R` and
+`5.2.error_correction_falciparum.R`. Smaller is better for everything
 except `cor`. **MBE scale changed**: it is now in cases per 100 000
 (was per 1 000), so the headline number jumps ~100× by design.
 
-DIC picks differ between versions:
+> ⚠️ Window mismatch: `4.best_models_*` writes per-family metrics over
+> the full test window (`ano >= 2016`); 5.1/5.2 then overwrite the same
+> CSVs with metrics computed only on `ano == 2018`, plus the
+> piecewise-corrected variant. The numbers below come from this second
+> write — they correspond to the 2018 evaluation window. The previous
+> revision of this document quoted the 2016–2018 numbers from
+> `4.best_models_*`; the rankings are preserved, but the absolute
+> magnitudes are different.
+
+DIC picks differ between `main` and this branch:
 
 | species    | main picks                       | branch picks                     |
 |------------|----------------------------------|----------------------------------|
 | falciparum | bell_3 · poisson_3 · nbinomial_4 | bell_3 · **poisson_2** · nbinomial_4 |
 | vivax      | bell_3 · poisson_3 · nbinomial_4 | bell_3 · poisson_3 · **nbinomial_3** |
 
-#### Falciparum
+#### Falciparum (test window = 2018)
 
-| family    | source | mbe   | nrmse  | rae    | rmsle | rse    | cor    |
-|-----------|--------|------:|-------:|-------:|------:|-------:|-------:|
-| bell      | main   | 0.068 | 0.0804 | 0.571  | 0.183 | 1.000  | 0.609  |
-| bell      | branch | 8.77  | 0.0810 | 0.566  | 0.882 | 0.985  | 0.579  |
-| poisson   | main   | 0.069 | 0.0809 | 0.579  | 0.186 | 1.013  | 0.614  |
-| poisson   | branch | **5.30**  | **0.0756** | 0.605  | 1.025 | **0.858**  | 0.453  |
-| nbinomial | main   | 0.071 | 0.0815 | 0.589  | 0.189 | 1.028  | 0.628  |
-| nbinomial | branch | 8.24  | 0.0794 | **0.554**  | **0.874** | 0.945  | 0.539  |
+| variant              | mbe   | nrmse  | rae   | rmsle | rse   | cor   |
+|----------------------|------:|-------:|------:|------:|------:|------:|
+| bell_3               |  9.86 | 0.0972 | 0.569 | 0.930 | 1.001 | 0.505 |
+| poisson_2            | 10.03 | 0.0978 | 0.579 | 1.032 | 1.014 | 0.470 |
+| nbinomial_4          | 10.27 | 0.0982 | 0.584 | 1.124 | 1.021 | 0.529 |
+| poisson_2 + correct  | 10.15 | 0.0975 | 0.581 | 1.169 | 1.007 | 0.406 |
 
-The picture on the branch is now a three-way trade-off:
+**Decision: `poisson_2` is kept as the per-species pick for
+falciparum.** It is the DIC winner (Δ DIC ≈ 30 000 vs `bell_3`) and is
+parsimonious (climate covariates, no space–time interaction). The
+three families are close on the test set — `bell_3` wins three metrics
+by ≤0.01, `nbinomial_4` has the best `cor` by ~0.025 — but the
+differences are too small to overturn DIC. The piecewise correction
+(three regimes: `<1`, `[1, 4]`, `>4`) does not help: `rmsle` worsens,
+`cor` drops by ~0.06, and the other metrics barely move; the regression
+fit on the `[1, 4]` regime explains only R² ≈ 0.07 of the variance, so
+the correction is essentially noise on this scale.
 
-- `poisson_2` (no IID, with covariates) wins **MBE, NRMSE and RSE**
-  — three error-magnitude / scale metrics — but `cor` collapses to
-  **0.453** (worst of the three). Without `f(idInteraction, iid)`
-  the predictions are smoother, so average bias is small but the
-  per-cell ranking of predicted vs observed degrades.
-- `nbinomial_4` wins **RAE and RMSLE**, is second on `NRMSE`, and
-  keeps a moderate `cor` of 0.539.
-- `bell_3` retains the best `cor` of the three (0.579).
+#### Vivax (test window = 2018)
 
-Compared with `main`:
+| variant            | mbe    | nrmse  | rae   | rmsle | rse   | cor   |
+|--------------------|-------:|-------:|------:|------:|------:|------:|
+| bell_3             |  95.22 | 0.1028 | 0.609 | 1.326 | 0.995 | 0.779 |
+| poisson_3          |  97.45 | 0.1043 | 0.622 | 1.423 | 1.024 | 0.779 |
+| nbinomial_3        |  97.61 | 0.1044 | 0.623 | 1.430 | 1.026 | 0.780 |
+| bell_3 + correct   | **15.82** | **0.0652** | **0.417** | **1.067** | **0.400** | 0.779 |
 
-- On `main`, `bell` led 4 of 6 metrics and the historic pick was
-  `poisson_3` (highest `cor` and tightest PIT among the unsaturated
-  alternatives, per the comments in the legacy script).
-- On the branch, **`bell_3` is now the family with the highest
-  `cor`** — the very criterion that used to justify picking
-  `poisson_3` now points to `bell`.
-- **Falciparum pick is genuinely ambiguous and depends on the
-  ranking criterion** — call out below.
+- `bell_3` wins five of six metrics among the raw fits; `nbinomial_3`
+  edges `cor` by 0.001 — practically a tie.
+- The piecewise correction is unambiguously beneficial:
+  `bell_preds × 7.88` for cells where the raw prediction exceeds 2 per
+  100 000 collapses MBE by ~6× and cuts RSE by ~60% without sacrificing
+  `cor`. R² of the calibration fit is 0.64, well above the falciparum
+  case.
 
-#### Vivax
+#### Amazonas state (test window = 2016–2018)
 
-| family    | source | mbe   | nrmse  | rae    | rmsle | rse    | cor    |
-|-----------|--------|------:|-------:|-------:|------:|-------:|-------:|
-| bell      | main   | 0.665 | 0.1005 | 0.631  | 0.561 | 1.046  | 0.791  |
-| bell      | branch | **85.47** | **0.1019** | **0.590**  | **1.182** | **0.953**  | 0.7754 |
-| poisson   | main   | 0.671 | 0.1010 | 0.636  | 0.568 | 1.057  | 0.787  |
-| poisson   | branch | 88.00 | 0.1035 | 0.605  | 1.269 | 0.983  | **0.7758** |
-| nbinomial | main   | 0.713 | 0.1052 | 0.674  | 0.635 | 1.146  | 0.780  |
-| nbinomial | branch | 88.05 | 0.1036 | 0.605  | 1.272 | 0.984  | 0.7751 |
+`scripts/3.state_models/vivax_AM.R` was re-run in commit `7170683`
+against the Mendeley data and refreshed
+`results/test_metrics_am_vivax.csv`:
 
-- `bell_3` led every metric on `main` and still leads **five of six**
-  on the branch (mbe, nrmse, rae, rmsle, rse). `poisson_3` edges
-  `cor` by 0.0004 — practically a tie.
-- Note that on the branch `poisson_3` and `nbinomial_3` now sit on
-  essentially the same metrics row: both keep `f(idInteraction, iid)`
-  without covariates, and the negative-binomial dispersion is
-  already absorbed by the IID, so the two fits converge in test
-  performance.
-- **Conclusion for vivax holds: `bell_3` remains the per-species
-  pick.**
+| variant | mbe   | nrmse  | rae   | rmsle | rse   | cor   |
+|---------|------:|-------:|------:|------:|------:|------:|
+| bell    | 239.1 | 0.0989 | 0.753 | 1.824 | 1.121 | 0.524 |
+
+Larger MBE and lower `cor` than at the micro-region grain are expected:
+the AM municipality model resolves spikes the additive structure
+cannot fully explain.
 
 ### 6.5 Summary of result-level deltas
 
-- **Vivax pick (`bell 3`):** unchanged. Still dominates 5 of 6
-  metrics.
-- **Falciparum pick (`poisson 3`):** **does not survive** — the
-  branch's DIC winner is now `poisson_2`, which dominates the
-  scale-magnitude metrics but tanks `cor` (0.453). On the
-  `cor` criterion that used to justify the historic choice, `bell_3`
-  now wins. On RAE/RMSLE, `nbinomial_4` wins. Pick depends on
-  criterion:
-  - **cor-based**           → `bell_3`
-  - **scale-error-based**   → `poisson_2`
-  - **relative/ratio-based**→ `nbinomial_4`
+- **Vivax pick (`bell_3`):** unchanged. Still dominates among raw
+  fits, and the piecewise correction is a clear, sizable win
+  (MBE 95 → 16, RSE 0.99 → 0.40, NRMSE 0.103 → 0.065 at unchanged
+  `cor`).
+- **Falciparum pick (`poisson_2`):** confirmed (DIC + parsimony) even
+  though the test-set comparison is closer than for vivax and the
+  piecewise correction does not help.
 - **Per-family DIC winners:** changed for `nbinomial vivax`
   (m4 → m3) and `poisson falciparum` (m3 → m2).
 - **Covariate significance:** `rhum` stable; `temp` loses
   significance in several models.
+- **Amazonas state model:** re-fit cleanly under the new pipeline;
+  metrics consistent with expectations at the municipality grain.
 
 ---
 
@@ -414,19 +427,24 @@ Compared with `main`:
 - Prior-sensitivity sweep for the `idInteraction` PC prior
   (`u ∈ {0.5, 3}`) on the affected families, to confirm intra-family
   DIC ranking is robust.
-- **Pick a ranking criterion for falciparum** (cor, scale-error,
-  or relative-error) and decide between `bell_3`, `poisson_2`, and
-  `nbinomial_4`. Then keep `4.best_models_falciparum.R` aligned
-  with that choice — at the moment it computes all three but does
-  not declare a winner.
-- Commit the §5 changes (PC prior, memory guards, model_selection_io,
-  best_models updates, removal of zero-inflated scripts) once the
-  falciparum decision is made.
+- Optional: reconsider the piecewise correction for falciparum (the
+  current `<1, [1, 4], >4` split adds no measurable benefit on the 2018
+  evaluation window). Either drop the correction or replace it with a
+  better-fitting family of correctors.
 
 ---
 
 ## 8. Change log of this document
 
+- **2026-05-19 (rev 4)** — Falciparum pick decided: `poisson_2`.
+  §1 / §3 / §5 retagged from "uncommitted" to commit `7170683`; new §1
+  bullet 5 covers the error-correction and AM re-runs. §6.4 rewritten
+  around the post-5.1/5.2 test_metrics CSVs (2018-only window) with
+  added rows for the corrected variants and a new Amazonas-state
+  subsection. §6.5 rewritten with the firm falciparum decision; §7
+  drops the "pick a ranking criterion" item and the commit item (both
+  done), keeps the prior-sensitivity sweep, and adds an optional item
+  to reconsider the piecewise falciparum correction.
 - **2026-05-19 (rev 3)** — Zero-inflated families dropped from the
   pipeline. Removed scripts
   `4.zeroinflatedpoisson_{falciparum,vivax}.R` and
