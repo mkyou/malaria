@@ -1,5 +1,8 @@
 library(readr)
+library(dplyr)
 library(INLA)
+
+source('scripts/loss_functions.R')
 
 am_path = 'outputs/am_map.graph'
 

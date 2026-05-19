@@ -3,6 +3,8 @@ library(readr)
 library(ggplot2)
 library(tidyr)
 
+source('scripts/loss_functions.R')
+
 df_vivax_pre = read_csv('results/preds_microrregion_vivax_df.csv') |>
   mutate(mes = sprintf('%02d', mes)) |>
   mutate(difs_bell = real - bell_preds) |>
@@ -54,7 +56,7 @@ df_vivax |> filter((mes == '06' | mes == '11') &
   geom_sf(aes(fill = difs_bell), color = 'black', size = .15) +
   scale_fill_gradient(low = '#d7e1ee', high = '#991f17',
                       limits = c(-5, 10),
-                      name = 'Erro nominal') +
+                      name = 'Nominal error\n(cases per 100k)') +
   facet_wrap(~ano + mes) +
   theme_bw() + 
   theme(axis.text.x = element_blank(),
@@ -68,7 +70,7 @@ df_vivax |> filter((mes == '06' | mes == '11') &
   geom_sf(aes(fill = new_difs_bell), color = 'black', size = .15) +
   scale_fill_gradient(low = '#d7e1ee', high = '#991f17',
                       limits = c(-5, 10),
-                      name = 'Erro nominal') +
+                      name = 'Nominal error\n(cases per 100k)') +
   facet_wrap(~ano + mes) +
   theme_bw() + 
   theme(axis.text.x = element_blank(),

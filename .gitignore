@@ -10,3 +10,7 @@ material/
 data/raw/
 data/main_data/
 data/output_data/
+
+# Logs and transient R artifacts
+logs/
+Rplots.pdf

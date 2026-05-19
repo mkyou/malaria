@@ -2,11 +2,13 @@ library(readr)
 library(INLA)
 library(dplyr)
 
+source('scripts/model_selection_io.R')
+inla.setOption(num.threads = '2:1')
+inla.setOption(inla.mode = 'compact')
+
 micro_path = 'outputs/micro_map.graph'
 micro_v = read_csv('data/output_data/micro_reg_v_df.csv')
 micro_spatial = read_csv('data/spatial_data/micro_map.csv')
-
-image(inla.graph2matrix(inla.read.graph(micro_path)), xlab = '', ylab = '')
 
 micro_v$idArea = pmatch(
   micro_v$codMicroRes,
@@ -19,107 +21,66 @@ micro_v$idArea2 = micro_v$idArea
 micro_v$idInteraction = as.numeric(interaction(micro_v$idArea,
                                                micro_v$idMes))
 
-real_rates_all = micro_v$numCasos*100000/micro_v$populacao
-test_idx = which(micro_v$ano >= 2016)
-real_rates_test = real_rates_all[test_idx]
+iid_hyper <- list(prec = list(prior = 'pc.prec', param = c(1, 0.01)))
 
+formulas <- list(
+  Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
+    f(ano, model = 'rw1', constr = T) +
+    f(idArea, model = 'bym2', graph = micro_path) +
+    f(idMes, model = 'rw1') +
+    offset(log(populacao)),
 
-formula1 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
-  f(ano, model = 'rw1', constr = T) +
-  f(idArea, model = 'bym2', graph = micro_path) +
-  f(idMes, model = 'rw1') +
-  offset(log(populacao))
+  Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
+    f(ano, model = 'rw1', constr = T) +
+    f(idArea, model = 'bym2', graph = micro_path) +
+    f(idMes, model = 'rw1') +
+    rhum + temp + offset(log(populacao)),
 
-formula2 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
-  f(ano, model = 'rw1', constr = T) +
-  f(idArea, model = 'bym2', graph = micro_path) +
-  f(idMes, model = 'rw1') +
-  rhum + temp + offset(log(populacao))
+  Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
+    f(ano, model = 'rw1', constr = T) +
+    f(idArea, model = 'bym2', graph = micro_path) +
+    f(idMes, model = 'rw1') +
+    f(idInteraction, model = 'iid', hyper = iid_hyper) +
+    offset(log(populacao)),
 
-formula3 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
-  f(ano, model = 'rw1', constr = T) +
-  f(idArea, model = 'bym2', graph = micro_path) +
-  f(idMes, model = 'rw1') +
-  f(idInteraction, model = 'iid') + offset(log(populacao))
-
-formula4 = Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
-  f(ano, model = 'rw1', constr = T) +
-  f(idArea, model = 'bym2', graph = micro_path) +
-  f(idMes, model = 'rw1') +
-  f(idInteraction, model = 'iid') +
-  rhum + temp + offset(log(populacao))
-
-nbinomial_fit1 = inla(
-  formula = formula1, family = 'nbinomial', data = micro_v,
-  working.directory = tempdir(),
-  control.predictor = list(compute = T, link = 1),
-  control.compute = list(dic = T, waic = T, cpo = T),
-  verbose = F
+  Y ~ f(mes, model = 'rw2', constr = T, cyclic = T) +
+    f(ano, model = 'rw1', constr = T) +
+    f(idArea, model = 'bym2', graph = micro_path) +
+    f(idMes, model = 'rw1') +
+    f(idInteraction, model = 'iid', hyper = iid_hyper) +
+    rhum + temp + offset(log(populacao))
 )
 
-nbinomial_fit1 |> summary()
-hist(nbinomial_fit1$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
-
-nbinomial_fit2 = inla(
-  formula = formula2, family = 'nbinomial', data = micro_v,
-  working.directory = tempdir(),
-  control.predictor = list(compute = T, link = 1),
-  control.compute = list(dic = T, waic = T, cpo = T),
-  verbose = F
-)
-
-nbinomial_fit2 |> summary()
-hist(nbinomial_fit2$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
-
-nbinomial_fit3 = inla(
-  formula = formula3, family = 'nbinomial', data = micro_v,
-  working.directory = tempdir(),
-  control.predictor = list(compute = T, link = 1),
-  control.compute = list(dic = T, waic = T, cpo = T),
-  verbose = F
-)
-
-nbinomial_fit3 |> summary()
-hist(nbinomial_fit3$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
-
-nbinomial_fit4 = inla(
-  formula = formula4, family = 'nbinomial', data = micro_v,
-  working.directory = tempdir(),
-  control.predictor = list(compute = T, link = 1),
-  control.compute = list(dic = T, waic = T, cpo = T),
-  verbose = F
-)
-
-nbinomial_fit4 |> summary()
-hist(nbinomial_fit4$cpo$pit, breaks = 10, main = '', xlab = 'PIT')
-
-nbinomial_fit4$summary.fixed
-
-#best model by DIC/WAIC: fit4
-nbinomial_rate_all = nbinomial_fit4$summary.fitted.values$mode*
-  100000/micro_v$populacao
-nbinomial_rate_test = nbinomial_rate_all[test_idx]
-
-tibble(
-  dist = 'nbinomial',
-  mbe = c(
-    mbe(real_rates_test, nbinomial_rate_test)
-  ),
-  nrmse = c(
-    nrmse(real_rates_test, nbinomial_rate_test)
-  ),
-  rae = c(
-    rae(real_rates_test, nbinomial_rate_test)
-  ),
-  rmsle = c(
-    rmsle(real_rates_test, nbinomial_rate_test)
-  ),
-  rse = c(
-    rse(real_rates_test, nbinomial_rate_test)
-  ),
-  cor = c(
-    cor(real_rates_test, nbinomial_rate_test)
+for (i in seq_along(formulas)) {
+  message('Fitting nbinomial vivax model ', i)
+  fit <- tryCatch(
+    inla(
+      formula = formulas[[i]], family = 'nbinomial', data = micro_v,
+      working.directory = tempdir(),
+      control.predictor = list(compute = FALSE, link = 1),
+      control.compute = list(
+        dic = T, waic = T, cpo = T,
+        return.marginals = FALSE,
+        return.marginals.predictor = FALSE,
+        config = FALSE
+      ),
+      control.inla = list(
+        strategy = 'adaptive',
+        control.vb = list(emergency = 100)
+      ),
+      safe = TRUE,
+      verbose = T
+    ),
+    error = function(e) {
+      message('Model ', i, ' failed: ', conditionMessage(e))
+      NULL
+    }
   )
-)
-
-plot(nbinomial_rate_test, real_rates_test)
+  if (!is.null(fit)) {
+    save_model_selection_row(
+      family = 'nbinomial', species = 'vivax', model_id = i, fit = fit
+    )
+  }
+  rm(fit)
+  gc()
+}

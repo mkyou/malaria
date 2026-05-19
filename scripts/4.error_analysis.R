@@ -6,13 +6,13 @@ library(tidyr)
 df_vivax_pre = read_csv('results/preds_microrregion_vivax_df.csv') |>
   mutate(preds = bell_preds) |>
   mutate(difs = real - preds) |>
-  mutate(mes = sprintf('%02d', mes)) |>
+  mutate(mes = sprintf('%02d', as.integer(mes))) |>
   mutate(difs_rmsle = sqrt((log(real + 1) - log(preds + 1))^2))
 
 df_falciparum_pre = read_csv('results/preds_microrregion_falciparum_df.csv') |>
   mutate(preds = poisson_preds) |>
   mutate(difs = real - preds) |>
-  mutate(mes = sprintf('%02d', mes)) |>
+  mutate(mes = sprintf('%02d', as.integer(mes))) |>
   mutate(difs_rmsle = sqrt((log(real + 1) - log(preds + 1))^2))
 
 
@@ -40,9 +40,9 @@ df_vivax |> filter((mes == '02' | mes == '06' | mes == '11') &
   geom_sf(aes(fill = difs), color = 'black', size = .15) +
   geom_sf(aes(fill = difs), color = 'black', size = .15) +
   scale_fill_gradientn(colours = c('#d7e1ee', '#991f17'),
-                       name = 'Erro nominal') +
+                       name = 'Nominal error\n(cases per 100k)') +
   facet_wrap(~ano + mes) +
-  theme_bw() + 
+  theme_bw() +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_blank())
 ggsave('results/erros_vivax.png')
@@ -54,11 +54,11 @@ df_falciparum |> filter((mes == '02' | mes == '06' | mes == '11') &
   geom_sf(aes(fill = difs), color = 'black', size = .15) +
   geom_sf(aes(fill = difs), color = 'black', size = .15) +
   scale_fill_gradientn(colours = c('#d7e1ee', '#991f17'),
-                       name = 'Erro nominal') +
+                       name = 'Nominal error\n(cases per 100k)') +
   facet_wrap(~ano + mes) +
-  theme_bw() + 
+  theme_bw() +
   theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank()) 
+        axis.text.y = element_blank())
 ggsave('results/erros_falciparum.png')
 
 df_vivax |> filter((mes == '02' | mes == '06' | mes == '11') & 
@@ -93,36 +93,35 @@ df_vivax |> filter(mes == '11' & ano == 2017) |>
   ggplot() +
   geom_sf(aes(fill = real), color = 'black', size = .15) +
   scale_fill_gradientn(colours = c('#d7e1ee', '#991f17'),
-                       name = 'N° Casos') +
-  theme_bw() + 
+                       name = 'Cases per\n100k inhabitants') +
+  theme_bw() +
   theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank()) 
+        axis.text.y = element_blank())
 ggsave('results/real vivax 201711.png')
 
 df_vivax |> filter(mes == '11' & ano == 2017) |>
   ggplot() +
   geom_sf(aes(fill = preds), color = 'black', size = .15) +
   scale_fill_gradientn(colours = c('#d7e1ee', '#991f17'),
-                       name = 'Predição a cada mil habitantes') +
-  theme_bw() + 
+                       name = 'Predicted cases per\n100k inhabitants') +
+  theme_bw() +
   theme(axis.text.x = element_blank(),
-        axis.text.y = element_blank()) 
+        axis.text.y = element_blank())
 ggsave('results/preds vivax 201711.png')
 #2017 had more malaria cases. So, the predictions (in the nominal scale)
-#probably will be worse in that year. 
+#probably will be worse in that year.
 df_vivax_pre |>
   mutate(dia = as.Date(paste(ano, '-', mes, '-01', sep = ''))) |>
   group_by(dia) |> summarise(real = mean(real)) |>
   ggplot(aes(x = dia, y = real)) +
   geom_line(size = .8) +
-  ylim(0, 2.5) +
   theme_bw() +
-  labs(x = 'Tempo', y = 'Número de casos')
+  labs(x = 'Time', y = 'Mean cases per 100k inhabitants')
 ggsave('results/real_vivax.png')
 
 df_am_v_pre = read_csv('results/preds_am_vivax_df.csv') |>
   mutate(difs = real - bell) |>
-  mutate(mes = sprintf('%02d', mes)) |>
+  mutate(mes = sprintf('%02d', as.integer(mes))) |>
   mutate(difs_rmsle = sqrt((log(real + 1) - log(bell + 1))^2))
 
 df_am_v = geobr::read_municipality(code_muni = 'AM',
@@ -141,9 +140,9 @@ df_am_v |> filter((mes == '02' | mes == '06' | mes == '11') &
   geom_sf(aes(fill = difs), color = 'black', size = .15) +
   geom_sf(aes(fill = difs), color = 'black', size = .15) +
   scale_fill_gradientn(colours = c('#d7e1ee', '#991f17'),
-                       name = 'Erro nominal') +
+                       name = 'Nominal error\n(cases per 100k)') +
   facet_wrap(~ano + mes) +
-  theme_bw() + 
+  theme_bw() +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_blank())
 ggsave('results/erros_am_vivax.png')
