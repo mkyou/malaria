@@ -6,7 +6,7 @@ library(Matrix)
 library(ggplot2)
 
 source("simulations/preliminar.R")
-source("scripts/0.loss_functions.R")
+source("scripts/loss_functions.R")
 
 simulate_poisson <- function(W, n_years, n_months, 
                              beta, sd_month, n_sim = 1)
