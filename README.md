@@ -18,21 +18,106 @@ release (CC BY 4.0) hosted on Mendeley Data:
 > Mendeley Data. https://doi.org/10.17632/9n6b97fsbd.2
 
 The download script pulls the dataset from a pinned version, verifies its
-SHA-256 checksum, restricts to the years used by the current analysis,
-splits records into species by test code, and aggregates to the
+SHA-256 checksum, restricts to the years used by the current analysis
+(`YEAR_START`/`YEAR_END` in `0.download_data.R`, currently 2003–2022 — the
+Mendeley v2 release covers the full range, we just weren't using all of it
+before), splits records into species by test code, and aggregates to the
 (municipality, month) grain expected by the downstream wrangling scripts.
 
 If Mendeley issues a new version and the `file_id` changes, resolve the new
 identifier from the DOI page and update `DATASET_URL` in the script.
 
+### Support data (`data/support_data/`)
+
+All data acquisition — malaria notifications and the support
+covariates below — lives in `0.download_data.R`, organized into
+numbered sections. Each section is idempotent: it checks for its own
+output file under `data/` and skips the fetch if already present, so
+re-running the script after a partial run doesn't redo completed work.
+Run the whole script to regenerate anything; there's no per-covariate
+script anymore.
+
+| File | Section | Source | Coverage |
+|---|---|---|---|
+| `populacao_df.csv` | 2 | IBGE SIDRA API (tables 6579 annual estimates, 793 2007 count, 200 Census 2010, 4709 Census 2022) — primary source, queried directly | 2003–2022, 807 municipalities |
+| `deforestation_df.csv` | 4 | PRODES/TerraBrasilis annual rate for the Legal Amazon, national aggregate, 2-year-lagged (see below) | 2003–2022 |
+| `precip_df.csv` | 5 | ERA5 monthly-averaged reanalysis, `total_precipitation`, Copernicus Climate Data Store — primary source, direct API pull | 2003–2022, per microregion centroid |
+| `rhum_df.csv`, `temp_df.csv` | 6 | ERA5 monthly-averaged reanalysis (`2m_temperature`, `2m_dewpoint_temperature`), Copernicus Climate Data Store; relative humidity derived via Magnus-Tetens | 2003–2022, per microregion centroid |
+
+**Vegetation index (NDVI) was tried and dropped.** MODIS/Terra NDVI
+(MOD13Q1, ORNL DAAC) had its own section, fetching one microregion at
+a time with retry/timeout/resumable caching, but ORNL DAAC was too
+slow/unresponsive to reliably complete a pull, and testing surfaced a
+libcurl-level timeout that bypassed the retry logic and crashed the
+whole script. Not worth continuing to fight an unreliable external
+service for a covariate whose case was only partial to begin with:
+NDVI overlaps conceptually with deforestation (both proxy land-cover
+change) — PRODES measures clear-cut directly, NDVI is a noisier
+indirect greenness signal also driven by seasonality, degradation, and
+agriculture, not just clearing. The section has been removed from
+`0.download_data.R`; `ndvi_df.csv` is no longer produced or joined in
+`1.data_wrangling.R`.
+
+**Deforestation caveat:** Section 4 tries TerraBrasilis's WFS first
+(`prodes-legal-amz:yearly_deforestation`, summed by year — the actual
+primary source), but that server is flaky (frequent 502s), so any year
+that fails after retries silently falls back to a secondary-sourced
+value (Wikipedia's PRODES table, cross-checked against INPE
+press-release text surfaced via web search) and logs a loud warning
+naming which years fell back. Check that warning before trusting
+`deforestation_df.csv$source` — a row marked `secondary_unverified`
+should not go into the manuscript as-is; re-run section 4 later to try
+upgrading it to `primary_wfs`.
+
+**ERA5 (rainfall) requires a Copernicus CDS API key** in `~/.cdsapirc`:
+```
+url: https://cds.climate.copernicus.eu/api
+key: <your key>
+```
+Register at https://cds.climate.copernicus.eu. Section 5 makes one
+request for the whole Legal Amazon bounding box and time range (not
+one per region — much cheaper), then extracts values locally at each
+microregion's centroid.
+
+Microregion centroids (`data/spatial_data/micro_centroids.csv`, built
+in section 3, shared by sections 5 and 6) are computed with
+`sf::st_centroid()` — the real area-weighted centroid, no
+approximation — directly from `data/spatial_data/sph_files/microrreg.shp`,
+a shapefile already versioned in this repo (560 Brazilian microregions,
+confirmed all-valid geometry), filtered to `LEGAL_AMAZON_STATES` (the 9
+Legal Amazon states, also used by section 4), cross-checked against
+`municipios_codigos.csv`'s own microregion-per-state breakdown — both
+give the identical 107 microregions. Filtering by state rather than by
+which microregions appear in the malaria panel is deliberate: it means
+section 3 depends on nothing but the shapefile and
+`municipios_codigos.csv`, not on sections 1-2 having already run. This
+sidesteps `geobr` entirely: IBGE's geoserver (which `geobr` calls) was
+consistently unreachable while this was built, while other IBGE
+endpoints were fine, so the issue looks specific to that one
+geoserver backend rather than IBGE overall — worth retrying `geobr`
+directly another day if a fresher malha territorial is ever needed,
+but there's no dependency on it right now.
+
+(`data/spatial_data/micro_map.csv` is a separate, older file, still
+used elsewhere for its `code_micro` column, but its `geom` column is
+**not valid WKT** — `write_csv()` mangled the `sf` geometry when
+`2.spatial_data_wrangling.R` first produced that file, serializing it
+as deparsed R list text instead. An earlier version of section 3
+recovered coordinates from that mangled text and computed the
+centroid by hand with the shoelace formula; cross-checked against the
+shapefile approach above, the two agreed to within ~0.005 degrees
+(~500m) on average, so that recovery wasn't wrong, just unnecessary
+now that a clean source is available locally.)
+
 ### `data/` layout
 
 - `data/main_data/` — *(gitignored)* produced by `0.download_data.R`.
 - `data/output_data/` — *(gitignored)* produced by `1.data_wrangling.R`.
-- `data/support_data/` — versioned: IBGE municipality codes, yearly
-  population estimates, and ERA5-derived relative humidity and temperature
-  per municipality/month.
-- `data/spatial_data/` — versioned: IBGE shapefiles and derived CSVs.
+- `data/support_data/` — versioned: IBGE municipality codes, population,
+  deforestation, precipitation, relative humidity, and temperature —
+  see table above.
+- `data/spatial_data/` — versioned: IBGE shapefiles, derived CSVs, and
+  microregion centroids.
 
 ## Methodology
 

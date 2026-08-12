@@ -57,22 +57,6 @@ vivax_df = vivax_df |>
 falciparum_df = falciparum_df |>
   mutate(Y = ifelse(ano >= 2016, NA, numCasos))
 
-vivax_df = vivax_df |> left_join(
-  read_csv('data/support_data/rhum_df.csv'),
-  by = c('codMunRes', 'ano', 'mes')
-) |> left_join(
-  read_csv('data/support_data/temp_df.csv'),
-  by = c('codMunRes', 'ano', 'mes')
-)
-
-falciparum_df = falciparum_df |> left_join(
-  read_csv('data/support_data/rhum_df.csv'),
-  by = c('codMunRes', 'ano', 'mes')
-) |> left_join(
-  read_csv('data/support_data/temp_df.csv'),
-  by = c('codMunRes', 'ano', 'mes')
-)
-
 vivax_df |> select(siglaUF) |> unique()
 
 vivax_df |> filter(siglaUF == 'PA') |> 
@@ -133,20 +117,41 @@ micro_reg_v = vivax_df |> group_by(codMicroRes, nomeMicroRes,
                                    idMes, mes, ano, codUF, siglaUF) |>
   summarise(
     populacao = sum(populacao, na.rm = T),
-    numCasos = sum(numCasos, na.rm = T),
-    rhum = mean(rhum, na.rm = T),
-    temp = mean(temp, na.rm = T)
+    numCasos = sum(numCasos, na.rm = T)
   )
 
 micro_reg_f = falciparum_df |> group_by(codMicroRes, nomeMicroRes,
-                                        idMes, mes, ano, codUF, 
+                                        idMes, mes, ano, codUF,
                                         siglaUF) |>
   summarise(
     populacao = sum(populacao, na.rm = T),
-    numCasos = sum(numCasos, na.rm = T),
-    rhum = mean(rhum, na.rm = T),
-    temp = mean(temp, na.rm = T)
+    numCasos = sum(numCasos, na.rm = T)
   )
+
+# New/rebuilt covariates (deforestation, rainfall, temperature,
+# relative humidity) -- see 0.download_data.R sections 4-6.
+# All built directly at microregion (precip, temp, rhum) or state
+# (deforestation) grain, so they join in here rather than at the
+# municipality level above. Deforestation joins by (state, ano) --
+# state, not national, since section 4 fetches a per-state breakdown.
+deforestation_df = read_csv('data/support_data/deforestation_df.csv') |>
+  select(siglaUF = state, ano, defor_lag2 = km2_lag2)
+
+precip_df = read_csv('data/support_data/precip_df.csv')
+temp_df = read_csv('data/support_data/temp_df.csv')
+rhum_df = read_csv('data/support_data/rhum_df.csv')
+
+micro_reg_v = micro_reg_v |>
+  left_join(deforestation_df, by = c('siglaUF', 'ano')) |>
+  left_join(precip_df, by = c('codMicroRes', 'ano', 'mes')) |>
+  left_join(temp_df, by = c('codMicroRes', 'ano', 'mes')) |>
+  left_join(rhum_df, by = c('codMicroRes', 'ano', 'mes'))
+
+micro_reg_f = micro_reg_f |>
+  left_join(deforestation_df, by = c('siglaUF', 'ano')) |>
+  left_join(precip_df, by = c('codMicroRes', 'ano', 'mes')) |>
+  left_join(temp_df, by = c('codMicroRes', 'ano', 'mes')) |>
+  left_join(rhum_df, by = c('codMicroRes', 'ano', 'mes'))
 
 micro_reg_v = micro_reg_v |>
   mutate(Y = ifelse(ano >= 2016, NA, numCasos))

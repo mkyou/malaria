@@ -11,11 +11,11 @@
 #   1. Population                   (IBGE SIDRA API, primary source)
 #   2. Malaria notifications        (Mendeley Data, public CC BY 4.0) -- reads
 #                                    populacao_df.csv, so must run after section 1
-#   3. Microregion centroids        (shared setup for sections 4-6)
+#   3. Microregion centroids        (shared setup for sections 5-6; filtered
+#                                    by state, no dependency on sections 1-2)
 #   4. Deforestation                (PRODES/TerraBrasilis, state x year)
 #   5. Precipitation                (ERA5 / Copernicus CDS)
 #   6. Temperature & relative humidity (ERA5 / Copernicus CDS)
-#   7. Vegetation index             (MODIS NDVI / ORNL DAAC)
 #
 # See README.md's "Data" section for the source table, caveats (PRODES
 # is primary-sourced 2008-2022 but secondary/estimated 2003-2007; the
@@ -27,6 +27,10 @@
 library(dplyr)
 library(readr)
 library(tidyr)
+
+# The 9 states making up the Brazilian Legal Amazon -- shared by section 3
+# (microregion filtering) and section 4 (deforestation, state x year).
+LEGAL_AMAZON_STATES <- c('AC', 'AM', 'AP', 'MA', 'MT', 'PA', 'RO', 'RR', 'TO')
 
 # ===========================================================================
 # SECTION 1: Population (IBGE SIDRA, primary source)
@@ -65,12 +69,12 @@ if (file.exists(POPULACAO_OUT)) {
     args <- list(x = table, variable = variable, period = period, geo = 'City')
     if (!is.null(classific)) { args$classific <- classific; args$category <- category }
     d <- do.call(get_sidra, args)
-    d %>%
+    d |>
       transmute(
         codMunRes = as.numeric(`Município (Código)`),
         ano = as.numeric(Ano),
         populacao = as.numeric(Valor)
-      ) %>%
+      ) |>
       filter(codMunRes %in% muni_codes)
   }
 
@@ -94,9 +98,9 @@ if (file.exists(POPULACAO_OUT)) {
   message('[fetch] 4709: 2022 (2022 Census)')
   censo_2022 <- fetch_pop_year(4709, 93, '2022')
 
-  pop <- bind_rows(est, cont_2007, censo_2010, censo_2022) %>%
-    mutate(codMunRes6 = as.numeric(substr(as.character(codMunRes), 1, 6))) %>%
-    select(codMunRes6, codMunRes, ano, populacao) %>%
+  pop <- bind_rows(est, cont_2007, censo_2010, censo_2022) |>
+    mutate(codMunRes6 = as.numeric(substr(as.character(codMunRes), 1, 6))) |>
+    select(codMunRes6, codMunRes, ano, populacao) |>
     arrange(codMunRes, ano)
 
   # Municipalities emancipated after 2003 genuinely have no primary
@@ -345,17 +349,28 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
 
 
 # ===========================================================================
-# SECTION 3: Microregion centroids (shared setup for sections 4-6)
+# SECTION 3: Microregion centroids (shared setup for sections 5-6)
 #
-# Needed to extract per-microregion values from the gridded ERA5 and
-# MODIS products. Read from the shapefile already versioned at
+# Needed to extract per-microregion values from the gridded ERA5
+# products. Read from the shapefile already versioned at
 # data/spatial_data/sph_files/microrreg.shp (560 Brazilian
 # microregions, valid MULTIPOLYGON geometry, confirmed 560/560 valid
-# with sf::st_is_valid()) rather than refetched via geobr. This
-# local shapefile is filtered to the 107 Legal Amazon microregions
-# actually present in the malaria panel and centroided directly with
-# sf::st_centroid(), the real area-weighted centroid, no
-# approximation. 
+# with sf::st_is_valid()) rather than refetched via geobr. This local
+# shapefile is filtered to LEGAL_AMAZON_STATES and centroided directly
+# with sf::st_centroid(), the real area-weighted centroid, no
+# approximation.
+#
+# Filtering by state (not by which microregions appear in the malaria
+# panel) is deliberate: the panel comes from section 2, which depends
+# on section 1, which this section would otherwise have to wait on --
+# and, after the SIDRA migration, sections 1-2 cover all of Brazil
+# rather than just the Legal Amazon, so the panel alone no longer
+# identifies the right 107 microregions anyway (see 1.data_wrangling.R,
+# which still needs a proper state filter for that reason). Filtering
+# the shapefile by state instead needs nothing but itself and
+# municipios_codigos.csv -- both available before any download runs --
+# and cross-checked against that file's own microregion-per-state
+# breakdown, gives the identical 107 microregions.
 # ===========================================================================
 
 CENTROIDS_OUT <- 'data/spatial_data/micro_centroids.csv'
@@ -371,33 +386,34 @@ if (file.exists(CENTROIDS_OUT)) {
   micro_sf <- st_read('data/spatial_data/sph_files/microrreg.shp', quiet = TRUE)
   stopifnot('shapefile has invalid geometries' = all(st_is_valid(micro_sf)))
 
-  target_codes <- read_csv(
-    'data/output_data/micro_reg_v_df.csv', 
-    show_col_types = FALSE
-  ) %>%
-    pull(codMicroRes) %>% unique()
-
-  micro_sf <- micro_sf %>%
-    mutate(code_micro = as.numeric(CD_MICRO)) %>%
-    filter(code_micro %in% target_codes)
-
-  stopifnot(
-    'not all target microregions found in the shapefile' = 
-    nrow(micro_sf) == length(target_codes)
-  )
-
   uf_lookup <- read_csv(
-    'data/support_data/municipios_codigos.csv', 
+    'data/support_data/municipios_codigos.csv',
     trim_ws = TRUE, show_col_types = FALSE
-  ) %>%
+  ) |>
     distinct(sigla_UF, cod_UF)
 
-  coords <- micro_sf %>% st_centroid() %>% st_coordinates()
+  expected_codes <- read_csv(
+    'data/support_data/municipios_codigos.csv',
+    trim_ws = TRUE, show_col_types = FALSE
+  ) |>
+    filter(sigla_UF %in% LEGAL_AMAZON_STATES) |>
+    pull(cod_micro_reg) |> unique()
 
-  centroids <- micro_sf %>%
-    st_drop_geometry() %>%
-    transmute(abbrev_state = SIGLA_UF, code_micro, name_micro = NM_MICRO) %>%
-    left_join(uf_lookup, by = c('abbrev_state' = 'sigla_UF')) %>%
+  micro_sf <- micro_sf |>
+    mutate(code_micro = as.numeric(CD_MICRO)) |>
+    filter(SIGLA_UF %in% LEGAL_AMAZON_STATES)
+
+  stopifnot(
+    'shapefile state filter disagrees with municipios_codigos.csv' =
+      setequal(micro_sf$code_micro, expected_codes)
+  )
+
+  coords <- micro_sf |> st_centroid() |> st_coordinates()
+
+  centroids <- micro_sf |>
+    st_drop_geometry() |>
+    transmute(abbrev_state = SIGLA_UF, code_micro, name_micro = NM_MICRO) |>
+    left_join(uf_lookup, by = c('abbrev_state' = 'sigla_UF')) |>
     transmute(code_state = cod_UF, abbrev_state, code_micro, name_micro,
               lon = coords[, 1], lat = coords[, 2])
 
@@ -408,12 +424,12 @@ if (file.exists(CENTROIDS_OUT)) {
   write_csv(centroids, CENTROIDS_OUT)
   message(
     sprintf(
-      '[done] micro_centroids.csv: %d microregions (from shapefile, exact centroids)', 
+      '[done] micro_centroids.csv: %d microregions (from shapefile, exact centroids)',
       nrow(centroids)
     )
   )
 
-  rm(micro_sf, target_codes, uf_lookup, coords, centroids)
+  rm(micro_sf, uf_lookup, expected_codes, coords, centroids)
 }
 
 
@@ -512,12 +528,12 @@ if (file.exists(DEFORESTATION_OUT)) {
     ))
   }
 
-  primary_state <- bind_rows(wfs_results) %>%
-    group_by(state, ano = year) %>%
-    summarise(km2 = sum(area_km, na.rm = TRUE), .groups = 'drop') %>%
+  primary_state <- bind_rows(wfs_results) |>
+    group_by(state, ano = year) |>
+    summarise(km2 = sum(area_km, na.rm = TRUE), .groups = 'drop') |>
     mutate(source = 'primary_wfs')
 
-  STATES <- c('AC', 'AM', 'AP', 'MA', 'MT', 'PA', 'RO', 'RR', 'TO')
+  STATES <- LEGAL_AMAZON_STATES
 
   # Secondary-sourced NATIONAL totals (unverified -- see README), used
   # only for 2003-2007, allocated across states by their average real
@@ -525,29 +541,29 @@ if (file.exists(DEFORESTATION_OUT)) {
   secondary_national_km2 <- c(
     `2003` = 25396, `2004` = 27772, `2005` = 19014, `2006` = 14286, `2007` = 11651
   )
-  state_shares <- primary_state %>%
-    filter(ano %in% 2008:2010) %>%
-    group_by(state) %>%
-    summarise(km2 = sum(km2), .groups = 'drop') %>%
-    mutate(share = km2 / sum(km2)) %>%
+  state_shares <- primary_state |>
+    filter(ano %in% 2008:2010) |>
+    group_by(state) |>
+    summarise(km2 = sum(km2), .groups = 'drop') |>
+    mutate(share = km2 / sum(km2)) |>
     select(state, share)
   stopifnot('state shares do not sum to 1' = abs(sum(state_shares$share) - 1) < 1e-6)
 
   allocated <- tidyr::crossing(
     state = STATES, ano = as.integer(names(secondary_national_km2))
-  ) %>%
-    left_join(state_shares, by = 'state') %>%
+  ) |>
+    left_join(state_shares, by = 'state') |>
     mutate(
       km2 = secondary_national_km2[as.character(ano)] * share,
       source = 'secondary_unverified_state_allocated'
-    ) %>%
+    ) |>
     select(state, ano, km2, source)
 
-  prodes <- bind_rows(primary_state, allocated) %>%
-    complete(state = STATES, ano = 2003:2022) %>%
-    arrange(state, ano) %>%
-    group_by(state) %>%
-    mutate(km2_lag2 = lag(km2, 2)) %>%
+  prodes <- bind_rows(primary_state, allocated) |>
+    complete(state = STATES, ano = 2003:2022) |>
+    arrange(state, ano) |>
+    group_by(state) |>
+    mutate(km2_lag2 = lag(km2, 2)) |>
     ungroup()
 
   write_csv(prodes, DEFORESTATION_OUT)
@@ -637,17 +653,17 @@ if (file.exists(PRECIP_OUT)) {
   vals <- terra::extract(r, pts)
   times <- as.Date(time(r))
 
-  precip <- vals %>%
-    select(-ID) %>%
-    bind_cols(cent %>% select(code_micro, name_micro)) %>%
-    pivot_longer(starts_with('tp_'), names_to = 'layer', values_to = 'tp_m') %>%
+  precip <- vals |>
+    select(-ID) |>
+    bind_cols(cent |> select(code_micro, name_micro)) |>
+    pivot_longer(starts_with('tp_'), names_to = 'layer', values_to = 'tp_m') |>
     mutate(
       layer_idx = as.integer(sub('tp_', '', layer)),
       date = times[layer_idx],
       ano = as.integer(format(date, '%Y')),
       mes = as.integer(format(date, '%m')),
       precip_mm = tp_m * 1000
-    ) %>%
+    ) |>
     select(codMicroRes = code_micro, ano, mes, precip_mm)
 
   stopifnot(sum(is.na(precip$precip_mm)) == 0)
@@ -697,7 +713,9 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
   ERA5_TEMP_NC <- 'data/raw/era5_temp_dewpoint_2003_2022.nc'
 
   if (!file.exists(ERA5_TEMP_NC)) {
-    message('[fetch] ERA5 2m_temperature + 2m_dewpoint_temperature, Legal Amazon bbox, 2003-2022')
+    message(
+      '[fetch] ERA5 2m_temperature + 2m_dewpoint_temperature, Legal Amazon bbox, 2003-2022'
+    )
     req <- list(
       dataset_short_name = 'reanalysis-era5-single-levels-monthly-means',
       product_type = 'monthly_averaged_reanalysis',
@@ -709,7 +727,10 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
       format = 'netcdf',
       target = basename(ERA5_TEMP_NC)
     )
-    wf_request(request = req, transfer = TRUE, path = dirname(ERA5_TEMP_NC), time_out = 3600)
+    wf_request(
+      request = req, transfer = TRUE, path = dirname(ERA5_TEMP_NC), 
+      time_out = 3600
+    )
   } else {
     message(sprintf('[skip] %s already exists', ERA5_TEMP_NC))
   }
@@ -725,25 +746,29 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
     rv <- r[[grep(paste0('^', prefix, '_'), names(r))]]
     vals <- terra::extract(rv, pts)
     times <- as.Date(time(rv))
-    vals %>%
-      select(-ID) %>%
-      bind_cols(cent %>% select(code_micro)) %>%
-      pivot_longer(starts_with(paste0(prefix, '_')), names_to = 'layer', values_to = prefix) %>%
+    vals |>
+      select(-ID) |>
+      bind_cols(cent |> select(code_micro)) |>
+      pivot_longer(
+        starts_with(paste0(prefix, '_')), 
+        names_to = 'layer', 
+        values_to = prefix
+      ) |>
       mutate(
         layer_idx = as.integer(sub(paste0(prefix, '_'), '', layer)),
         date = times[layer_idx],
         ano = as.integer(format(date, '%Y')),
         mes = as.integer(format(date, '%m'))
-      ) %>%
+      ) |>
       select(code_micro, ano, mes, all_of(prefix))
   }
 
-  meteo <- extract_var(r, 't2m') %>%
+  meteo <- extract_var(r, 't2m') |>
     inner_join(extract_var(r, 'd2m'), by = c('code_micro', 'ano', 'mes'))
 
   # Magnus-Tetens approximation for relative humidity from temperature
   # and dewpoint (both in Kelvin here, converted to Celsius for the formula).
-  meteo <- meteo %>%
+  meteo <- meteo |>
     mutate(
       t_c = t2m - 273.15,
       td_c = d2m - 273.15,
@@ -756,8 +781,8 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
       all(meteo$rhum >= 0 & meteo$rhum <= 100)
   )
 
-  temp_df <- meteo %>% transmute(codMicroRes = code_micro, ano, mes, temp = t2m)
-  rhum_df <- meteo %>% transmute(codMicroRes = code_micro, ano, mes, rhum)
+  temp_df <- meteo |> transmute(codMicroRes = code_micro, ano, mes, temp = t2m)
+  rhum_df <- meteo |> transmute(codMicroRes = code_micro, ano, mes, rhum)
 
   stopifnot(sum(is.na(temp_df$temp)) == 0, sum(is.na(rhum_df$rhum)) == 0)
 
@@ -767,112 +792,4 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
                    nrow(temp_df), min(temp_df$ano), max(temp_df$ano)))
 
   rm(cdsapirc, cds_key, r, cent, pts, extract_var, meteo, temp_df, rhum_df)
-}
-
-
-# ===========================================================================
-# SECTION 7: Vegetation index (MODIS NDVI / ORNL DAAC)
-#
-# MOD13Q1, 16-day composites, 250m, single center pixel per
-# microregion centroid (no auth needed). Aggregated to monthly (mean)
-# to match the grain used elsewhere.
-#
-# Fetches one site at a time (mt_subset), not mt_batch_subset: the
-# batch call is an opaque single request with no progress output and
-# no per-site timeout, and a first attempt sat at an established-but-
-# silent connection to the DAAC for nearly 2 hours with zero rows
-# produced. Per-site fetching gives visible progress, an actual
-# timeout, and retries, and survives a partial run -- if this stops
-# partway, NDVI_PARTIAL_OUT already has whatever sites succeeded, and
-# the loop below skips sites already in it on the next run.
-# ===========================================================================
-
-NDVI_OUT <- 'data/support_data/ndvi_df.csv'
-NDVI_PARTIAL_OUT <- 'data/support_data/ndvi_df.partial.csv'
-
-if (file.exists(NDVI_OUT)) {
-
-  message(sprintf('[skip] section 6: %s already exists', NDVI_OUT))
-
-} else {
-
-  library(MODISTools)
-  library(R.utils)
-
-  cent <- read_csv(CENTROIDS_OUT, show_col_types = FALSE)
-
-  partial <- if (file.exists(NDVI_PARTIAL_OUT)) {
-    read_csv(NDVI_PARTIAL_OUT, show_col_types = FALSE)
-  } else {
-    tibble(codMicroRes = numeric(), ano = integer(), mes = integer(), ndvi = double())
-  }
-  done_sites <- unique(partial$codMicroRes)
-  todo <- cent %>% filter(!code_micro %in% done_sites)
-
-  message(sprintf(
-    '[fetch] MOD13Q1 NDVI, %d/%d microregions already done, %d remaining',
-    length(done_sites), nrow(cent), nrow(todo)
-  ))
-
-  fetch_site_ndvi <- function(code_micro, lat, lon, max_retries = 3, timeout_s = 120) {
-    for (attempt in seq_len(max_retries)) {
-      result <- tryCatch(
-        withTimeout(
-          mt_subset(
-            product = 'MOD13Q1', band = '250m_16_days_NDVI',
-            lat = lat, lon = lon,
-            start = '2003-01-01', end = '2022-12-31',
-            km_lr = 0, km_ab = 0, site_name = as.character(code_micro),
-            progress = FALSE, internal = TRUE
-          ),
-          timeout = timeout_s, onTimeout = 'error'
-        ),
-        error = function(e) NULL
-      )
-      if (!is.null(result) && nrow(result) > 0) return(result)
-    }
-    NULL
-  }
-
-  for (i in seq_len(nrow(todo))) {
-    row <- todo[i, ]
-    message(sprintf('  - %s (%d of %d)', row$name_micro, i, nrow(todo)))
-    raw_site <- fetch_site_ndvi(row$code_micro, row$lat, row$lon)
-    if (is.null(raw_site)) {
-      message(sprintf('    [FAIL] %s: no result after retries, skipping 
-      (rerun the script to retry)', row$name_micro))
-      next
-    }
-    site_ndvi <- raw_site %>%
-      mutate(
-        ndvi = value * as.numeric(scale),
-        date = as.Date(calendar_date),
-        ano = as.integer(format(date, '%Y')),
-        mes = as.integer(format(date, '%m'))
-      ) %>%
-      group_by(codMicroRes = as.numeric(site), ano, mes) %>%
-      summarise(ndvi = mean(ndvi, na.rm = TRUE), .groups = 'drop')
-    partial <- bind_rows(partial, site_ndvi)
-    write_csv(partial, NDVI_PARTIAL_OUT)
-  }
-
-  n_missing <- nrow(cent) - length(unique(partial$codMicroRes))
-  if (n_missing > 0) {
-    warning(sprintf(
-      '[warn] %d microregion(s) still missing NDVI after this run -- 
-        re-run the script to retry just those (already-fetched sites are cached in %s)',
-      n_missing, NDVI_PARTIAL_OUT
-    ))
-  } else {
-    write_csv(partial, NDVI_OUT)
-    file.remove(NDVI_PARTIAL_OUT)
-    message(
-      sprintf(
-        '[done] ndvi_df.csv: %d rows, %d-%d', nrow(partial), min(partial$ano), 
-        max(partial$ano)
-      )
-    )
-  }
-
-  rm(cent, partial, done_sites, todo, fetch_site_ndvi, n_missing)
 }
