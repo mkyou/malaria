@@ -51,23 +51,31 @@ POPULACAO_OUT <- 'data/support_data/populacao_df.csv'
 dir.create('data/support_data', recursive = TRUE, showWarnings = FALSE)
 
 if (file.exists(POPULACAO_OUT)) {
-
   message(sprintf('[skip] section 1: %s already exists', POPULACAO_OUT))
-
 } else {
-
   library(sidrar)
 
   message('[info] fetching municipality universe for the query scope')
   muni_codes <- read_csv(
-    'data/support_data/municipios_codigos.csv', 
-    trim_ws = TRUE, show_col_types = FALSE
+    'data/support_data/municipios_codigos.csv',
+    trim_ws = TRUE,
+    show_col_types = FALSE
   ) |>
-    pull(cod_mun) |> unique()
+    pull(cod_mun) |>
+    unique()
 
-  fetch_pop_year <- function(table, variable, period, classific = NULL, category = NULL) {
+  fetch_pop_year <- function(
+    table,
+    variable,
+    period,
+    classific = NULL,
+    category = NULL
+  ) {
     args <- list(x = table, variable = variable, period = period, geo = 'City')
-    if (!is.null(classific)) { args$classific <- classific; args$category <- category }
+    if (!is.null(classific)) {
+      args$classific <- classific
+      args$category <- category
+    }
     d <- do.call(get_sidra, args)
     d |>
       transmute(
@@ -91,9 +99,13 @@ if (file.exists(POPULACAO_OUT)) {
   cont_2007 <- fetch_pop_year(793, 93, '2007')
 
   message('[fetch] 200: 2010 (2010 Census)')
-  censo_2010 <- fetch_pop_year(200, 93, '2010',
-                                classific = c('c1', 'c2', 'c58'),
-                                category = list(0, 0, 0))
+  censo_2010 <- fetch_pop_year(
+    200,
+    93,
+    '2010',
+    classific = c('c1', 'c2', 'c58'),
+    category = list(0, 0, 0)
+  )
 
   message('[fetch] 4709: 2022 (2022 Census)')
   censo_2022 <- fetch_pop_year(4709, 93, '2022')
@@ -115,8 +127,10 @@ if (file.exists(POPULACAO_OUT)) {
         '[warn] %d municipalities with more than 2 missing years 
         (beyond what emancipations would explain): %s
         ',
-      length(incomplete), paste(names(incomplete), collapse = ', ')
-    ))
+        length(incomplete),
+        paste(names(incomplete), collapse = ', ')
+      )
+    )
   }
   gap_small <- year_counts[year_counts %in% 18:19]
   if (length(gap_small) > 0) {
@@ -125,7 +139,8 @@ if (file.exists(POPULACAO_OUT)) {
       [info] %d municipalities with 1-2 missing years 
       (expected for post-2003 emancipations): %s
       ',
-      length(gap_small), paste(names(gap_small), collapse = ', ')
+      length(gap_small),
+      paste(names(gap_small), collapse = ', ')
     ))
   }
 
@@ -139,12 +154,22 @@ if (file.exists(POPULACAO_OUT)) {
   write_csv(pop, POPULACAO_OUT)
   message(sprintf(
     '[done] populacao_df.csv: primary SIDRA source, %d-%d (%d rows, %d municipalities)',
-    min(pop$ano), max(pop$ano), nrow(pop), length(unique(pop$codMunRes))
+    min(pop$ano),
+    max(pop$ano),
+    nrow(pop),
+    length(unique(pop$codMunRes))
   ))
 
   rm(
-    muni_codes, est, cont_2007, censo_2010, censo_2022, pop, year_counts, 
-    incomplete, gap_small
+    muni_codes,
+    est,
+    cont_2007,
+    censo_2010,
+    censo_2022,
+    pop,
+    year_counts,
+    incomplete,
+    gap_small
   )
 }
 
@@ -158,8 +183,8 @@ if (file.exists(POPULACAO_OUT)) {
 # ===========================================================================
 
 MENDELEY_DATASET_ID <- '9n6b97fsbd'
-MENDELEY_VERSION    <- 2
-MENDELEY_DOI        <- '10.17632/9n6b97fsbd.2'
+MENDELEY_VERSION <- 2
+MENDELEY_DOI <- '10.17632/9n6b97fsbd.2'
 
 # Direct URL for the pinned /2 version (validated manually).
 # Fallback: if the file_id changes, resolve the new one from the DOI at
@@ -174,7 +199,7 @@ DATASET_URL <- paste0(
 DATASET_SHA256 <- '3241ff18e67b5ee63b92145976c883268c839771da17c669fd350c7f844b8954'
 
 YEAR_START <- 2003
-YEAR_END   <- 2022
+YEAR_END <- 2022
 
 # Test-result code classification (dataset's atributos.csv):
 #   02 P. falciparum
@@ -185,13 +210,13 @@ YEAR_END   <- 2022
 #   07 P. falciparum gametocytes
 #   08-11 other (excluded)
 FALCIPARUM_CODES <- c(2, 3, 7)
-VIVAX_CODES      <- c(4, 6)
+VIVAX_CODES <- c(4, 6)
 
 RAW_DIR <- 'data/raw'
 RAW_FILE <- file.path(RAW_DIR, 'Dataset.csv')
 MAIN_DATA_DIR <- 'data/main_data'
 FALCIPARUM_OUT <- file.path(MAIN_DATA_DIR, 'falciparum_df.csv')
-VIVAX_OUT      <- file.path(MAIN_DATA_DIR, 'vivax_df.csv')
+VIVAX_OUT <- file.path(MAIN_DATA_DIR, 'vivax_df.csv')
 
 dir.create(RAW_DIR, recursive = TRUE, showWarnings = FALSE)
 dir.create(MAIN_DATA_DIR, recursive = TRUE, showWarnings = FALSE)
@@ -200,7 +225,8 @@ dir.create('data/spatial_data', recursive = TRUE, showWarnings = FALSE)
 if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
   message(
     sprintf(
-      '[skip] section 2: %s and %s already exist', FALCIPARUM_OUT,
+      '[skip] section 2: %s and %s already exist',
+      FALCIPARUM_OUT,
       VIVAX_OUT
     )
   )
@@ -221,25 +247,31 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
         expected: %s\n  
         got: %s\n
         Version %s\'s content may have changed. Check %s.',
-        DATASET_SHA256, observed, MENDELEY_VERSION,
+        DATASET_SHA256,
+        observed,
+        MENDELEY_VERSION,
         paste0(
-          'https://data.mendeley.com/datasets/', MENDELEY_DATASET_ID,
-          '/', MENDELEY_VERSION
+          'https://data.mendeley.com/datasets/',
+          MENDELEY_DATASET_ID,
+          '/',
+          MENDELEY_VERSION
         )
       ))
     } else {
       message('[ok] SHA-256 matches')
     }
   } else {
-    message('[warn] `digest` package unavailable -- skipping checksum verification')
+    message(
+      '[warn] `digest` package unavailable -- skipping checksum verification'
+    )
   }
 
   raw <- read_csv(
     RAW_FILE,
     col_types = cols(
-      Date          = col_date(),
-      Municipality  = col_character(),
-      `Test results`= col_double(),
+      Date = col_date(),
+      Municipality = col_character(),
+      `Test results` = col_double(),
       Notifications = col_integer()
     )
   )
@@ -257,9 +289,9 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     'data/support_data/populacao_df.csv',
     col_types = cols(
       codMunRes6 = col_character(),
-      codMunRes  = col_character(),
-      ano        = col_integer(),
-      populacao  = col_integer()
+      codMunRes = col_character(),
+      ano = col_integer(),
+      populacao = col_integer()
     )
   )
 
@@ -297,8 +329,8 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
       id_mes = (ano - YEAR_START) * 12L + mes,
       tipo = case_when(
         `Test results` %in% FALCIPARUM_CODES ~ 'falciparum',
-        `Test results` %in% VIVAX_CODES      ~ 'vivax',
-        TRUE                                 ~ NA_character_
+        `Test results` %in% VIVAX_CODES ~ 'vivax',
+        TRUE ~ NA_character_
       )
     ) |>
     filter(!is.na(tipo))
@@ -316,7 +348,7 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
   panel <- expand_grid(
     muni_universe,
     id_mes = seq_len((YEAR_END - YEAR_START + 1L) * 12L),
-    tipo   = c('falciparum', 'vivax')
+    tipo = c('falciparum', 'vivax')
   ) |>
     left_join(agg, by = c('codMunRes6', 'id_mes', 'tipo')) |>
     mutate(
@@ -327,7 +359,7 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     select(codMunRes6, codMunRes, id_mes, numCasos, populacao, tipo)
 
   falciparum_df <- panel |> filter(tipo == 'falciparum') |> select(-tipo)
-  vivax_df      <- panel |> filter(tipo == 'vivax') |> select(-tipo)
+  vivax_df <- panel |> filter(tipo == 'vivax') |> select(-tipo)
 
   stopifnot(nrow(falciparum_df) == nrow(vivax_df))
 
@@ -336,15 +368,27 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
 
   message(sprintf(
     '[done] falciparum_df.csv: %s rows | vivax_df.csv: %s rows',
-    nrow(falciparum_df), nrow(vivax_df)
+    nrow(falciparum_df),
+    nrow(vivax_df)
   ))
   message(sprintf(
     '[done] total cases in %d-%d -> falciparum: %s | vivax: %s',
-    YEAR_START, YEAR_END,
-    sum(falciparum_df$numCasos), sum(vivax_df$numCasos)
+    YEAR_START,
+    YEAR_END,
+    sum(falciparum_df$numCasos),
+    sum(vivax_df$numCasos)
   ))
 
-  rm(raw, cities_df, populacao_df, agg, muni_universe, panel, falciparum_df, vivax_df)
+  rm(
+    raw,
+    cities_df,
+    populacao_df,
+    agg,
+    muni_universe,
+    panel,
+    falciparum_df,
+    vivax_df
+  )
 }
 
 
@@ -359,28 +403,13 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
 # shapefile is filtered to LEGAL_AMAZON_STATES and centroided directly
 # with sf::st_centroid(), the real area-weighted centroid, no
 # approximation.
-#
-# Filtering by state (not by which microregions appear in the malaria
-# panel) is deliberate: the panel comes from section 2, which depends
-# on section 1, which this section would otherwise have to wait on --
-# and, after the SIDRA migration, sections 1-2 cover all of Brazil
-# rather than just the Legal Amazon, so the panel alone no longer
-# identifies the right 107 microregions anyway (see 1.data_wrangling.R,
-# which still needs a proper state filter for that reason). Filtering
-# the shapefile by state instead needs nothing but itself and
-# municipios_codigos.csv -- both available before any download runs --
-# and cross-checked against that file's own microregion-per-state
-# breakdown, gives the identical 107 microregions.
 # ===========================================================================
 
 CENTROIDS_OUT <- 'data/spatial_data/micro_centroids.csv'
 
 if (file.exists(CENTROIDS_OUT)) {
-
   message(sprintf('[skip] section 3: %s already exists', CENTROIDS_OUT))
-
 } else {
-
   library(sf)
 
   micro_sf <- st_read('data/spatial_data/sph_files/microrreg.shp', quiet = TRUE)
@@ -388,24 +417,29 @@ if (file.exists(CENTROIDS_OUT)) {
 
   uf_lookup <- read_csv(
     'data/support_data/municipios_codigos.csv',
-    trim_ws = TRUE, show_col_types = FALSE
+    trim_ws = TRUE,
+    show_col_types = FALSE
   ) |>
     distinct(sigla_UF, cod_UF)
 
   expected_codes <- read_csv(
     'data/support_data/municipios_codigos.csv',
-    trim_ws = TRUE, show_col_types = FALSE
+    trim_ws = TRUE,
+    show_col_types = FALSE
   ) |>
     filter(sigla_UF %in% LEGAL_AMAZON_STATES) |>
-    pull(cod_micro_reg) |> unique()
+    pull(cod_micro_reg) |>
+    unique()
 
   micro_sf <- micro_sf |>
     mutate(code_micro = as.numeric(CD_MICRO)) |>
     filter(SIGLA_UF %in% LEGAL_AMAZON_STATES)
 
   stopifnot(
-    'shapefile state filter disagrees with municipios_codigos.csv' =
-      setequal(micro_sf$code_micro, expected_codes)
+    'shapefile state filter disagrees with municipios_codigos.csv' = setequal(
+      micro_sf$code_micro,
+      expected_codes
+    )
   )
 
   coords <- micro_sf |> st_centroid() |> st_coordinates()
@@ -414,11 +448,20 @@ if (file.exists(CENTROIDS_OUT)) {
     st_drop_geometry() |>
     transmute(abbrev_state = SIGLA_UF, code_micro, name_micro = NM_MICRO) |>
     left_join(uf_lookup, by = c('abbrev_state' = 'sigla_UF')) |>
-    transmute(code_state = cod_UF, abbrev_state, code_micro, name_micro,
-              lon = coords[, 1], lat = coords[, 2])
+    transmute(
+      code_state = cod_UF,
+      abbrev_state,
+      code_micro,
+      name_micro,
+      lon = coords[, 1],
+      lat = coords[, 2]
+    )
 
   stopifnot(
-    'centroid extraction failed for some microregions' = sum(is.na(centroids$lon)) == 0
+    'centroid extraction failed for some microregions' = sum(is.na(
+      centroids$lon
+    )) ==
+      0
   )
 
   write_csv(centroids, CENTROIDS_OUT)
@@ -461,7 +504,6 @@ DEFORESTATION_OUT <- 'data/support_data/deforestation_df.csv'
 if (file.exists(DEFORESTATION_OUT)) {
   message(sprintf('[skip] section 4: %s already exists', DEFORESTATION_OUT))
 } else {
-
   library(httr)
 
   WFS_BASE <- 'https://terrabrasilis.dpi.inpe.br/geoserver/ows'
@@ -474,33 +516,52 @@ if (file.exists(DEFORESTATION_OUT)) {
       result <- NULL
       for (attempt in seq_len(max_retries)) {
         resp <- tryCatch(
-          GET(WFS_BASE, query = list(
-            service = 'WFS', version = '2.0.0', request = 'GetFeature',
-            typeName = type_name,
-            propertyName = 'state,year,area_km',
-            outputFormat = 'csv',
-            CQL_FILTER = sprintf('year=%d', year),
-            startIndex = start_index, count = WFS_PAGE_SIZE
-          ), timeout(90)),
+          GET(
+            WFS_BASE,
+            query = list(
+              service = 'WFS',
+              version = '2.0.0',
+              request = 'GetFeature',
+              typeName = type_name,
+              propertyName = 'state,year,area_km',
+              outputFormat = 'csv',
+              CQL_FILTER = sprintf('year=%d', year),
+              startIndex = start_index,
+              count = WFS_PAGE_SIZE
+            ),
+            timeout(90)
+          ),
           error = function(e) NULL
         )
         if (
-          !is.null(resp) && status_code(resp) == 200 && 
-            length(content(resp, 'raw')
-        ) > 20) {
+          !is.null(resp) &&
+            status_code(resp) == 200 &&
+            length(content(resp, 'raw')) > 20
+        ) {
           result <- resp
           break
         }
         Sys.sleep(6)
       }
-      if (is.null(result)) return(NULL)
-      page <- read_csv(content(result, 'text', encoding = 'UTF-8'), show_col_types = FALSE)
-      if (nrow(page) == 0) break
+      if (is.null(result)) {
+        return(NULL)
+      }
+      page <- read_csv(
+        content(result, 'text', encoding = 'UTF-8'),
+        show_col_types = FALSE
+      )
+      if (nrow(page) == 0) {
+        break
+      }
       all_pages[[length(all_pages) + 1]] <- page
-      if (nrow(page) < WFS_PAGE_SIZE) break
+      if (nrow(page) < WFS_PAGE_SIZE) {
+        break
+      }
       start_index <- start_index + WFS_PAGE_SIZE
     }
-    if (length(all_pages) == 0) return(NULL)
+    if (length(all_pages) == 0) {
+      return(NULL)
+    }
     bind_rows(all_pages)
   }
 
@@ -514,7 +575,8 @@ if (file.exists(DEFORESTATION_OUT)) {
   for (y in primary_attempt_years) {
     message(sprintf('  - %d', y))
     wfs_results[[as.character(y)]] <- fetch_prodes_year(
-      y, 'prodes-legal-amz:yearly_deforestation'
+      y,
+      'prodes-legal-amz:yearly_deforestation'
     )
   }
 
@@ -522,9 +584,10 @@ if (file.exists(DEFORESTATION_OUT)) {
   if (length(failed_years) > 0) {
     warning(sprintf(
       '[warn] PRODES primary-source fetch failed for %d year(s) even by state: %s.
-      These years will have NO deforestation data (no state-level secondary source exists to 
-      fall back to)',
-      length(failed_years), paste(failed_years, collapse = ', ')
+      These years will have NO deforestation data 
+      (no state-level secondary source exists to fall back to)',
+      length(failed_years),
+      paste(failed_years, collapse = ', ')
     ))
   }
 
@@ -539,7 +602,11 @@ if (file.exists(DEFORESTATION_OUT)) {
   # only for 2003-2007, allocated across states by their average real
   # share of the 2008-2010 total.
   secondary_national_km2 <- c(
-    `2003` = 25396, `2004` = 27772, `2005` = 19014, `2006` = 14286, `2007` = 11651
+    `2003` = 25396,
+    `2004` = 27772,
+    `2005` = 19014,
+    `2006` = 14286,
+    `2007` = 11651
   )
   state_shares <- primary_state |>
     filter(ano %in% 2008:2010) |>
@@ -547,10 +614,13 @@ if (file.exists(DEFORESTATION_OUT)) {
     summarise(km2 = sum(km2), .groups = 'drop') |>
     mutate(share = km2 / sum(km2)) |>
     select(state, share)
-  stopifnot('state shares do not sum to 1' = abs(sum(state_shares$share) - 1) < 1e-6)
+  stopifnot(
+    'state shares do not sum to 1' = abs(sum(state_shares$share) - 1) < 1e-6
+  )
 
   allocated <- tidyr::crossing(
-    state = STATES, ano = as.integer(names(secondary_national_km2))
+    state = STATES,
+    ano = as.integer(names(secondary_national_km2))
   ) |>
     left_join(state_shares, by = 'state') |>
     mutate(
@@ -570,22 +640,33 @@ if (file.exists(DEFORESTATION_OUT)) {
   message(sprintf(
     '[done] deforestation_df.csv: %d rows (%d states x %d years), 
     %d primary_wfs / %d secondary_unverified_state_allocated',
-    nrow(prodes), length(STATES), length(2003:2022),
+    nrow(prodes),
+    length(STATES),
+    length(2003:2022),
     sum(prodes$source == 'primary_wfs', na.rm = TRUE),
     sum(prodes$source == 'secondary_unverified_state_allocated', na.rm = TRUE)
   ))
   if (any(is.na(prodes$km2))) {
     warning(
       sprintf(
-        '[warn] %d (state, year) cells still have no deforestation value at all', 
-        sum(is.na(prodes$km2)
-        )
+        '[warn] %d (state, year) cells still have no deforestation value at all',
+        sum(is.na(prodes$km2))
       )
     )
   }
 
-  rm(fetch_prodes_year, primary_attempt_years, wfs_results, failed_years, primary_state,
-     STATES, secondary_national_km2, state_shares, allocated, prodes)
+  rm(
+    fetch_prodes_year,
+    primary_attempt_years,
+    wfs_results,
+    failed_years,
+    primary_state,
+    STATES,
+    secondary_national_km2,
+    state_shares,
+    allocated,
+    prodes
+  )
 }
 
 
@@ -609,11 +690,8 @@ if (file.exists(DEFORESTATION_OUT)) {
 PRECIP_OUT <- 'data/support_data/precip_df.csv'
 
 if (file.exists(PRECIP_OUT)) {
-
   message(sprintf('[skip] section 5: %s already exists', PRECIP_OUT))
-
 } else {
-
   library(ecmwfr)
   library(terra)
 
@@ -638,11 +716,16 @@ if (file.exists(PRECIP_OUT)) {
       year = as.character(2003:2022),
       month = sprintf('%02d', 1:12),
       time = '00:00',
-      area = c(5, -75, -20, -40),  # N, W, S, E -- buffer around Legal Amazon
+      area = c(5, -75, -20, -40), # N, W, S, E -- buffer around Legal Amazon
       format = 'netcdf',
       target = basename(ERA5_NC)
     )
-    wf_request(request = req, transfer = TRUE, path = dirname(ERA5_NC), time_out = 3600)
+    wf_request(
+      request = req,
+      transfer = TRUE,
+      path = dirname(ERA5_NC),
+      time_out = 3600
+    )
   } else {
     message(sprintf('[skip] %s already exists', ERA5_NC))
   }
@@ -671,8 +754,10 @@ if (file.exists(PRECIP_OUT)) {
   write_csv(precip, PRECIP_OUT)
   message(
     sprintf(
-      '[done] precip_df.csv: %d rows, %d-%d', 
-      nrow(precip), min(precip$ano), max(precip$ano)
+      '[done] precip_df.csv: %d rows, %d-%d',
+      nrow(precip),
+      min(precip$ano),
+      max(precip$ano)
     )
   )
 
@@ -698,11 +783,12 @@ TEMP_OUT <- 'data/support_data/temp_df.csv'
 RHUM_OUT <- 'data/support_data/rhum_df.csv'
 
 if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
-
-  message(sprintf('[skip] section 6: %s and %s already exist', TEMP_OUT, RHUM_OUT))
-
+  message(sprintf(
+    '[skip] section 6: %s and %s already exist',
+    TEMP_OUT,
+    RHUM_OUT
+  ))
 } else {
-
   library(ecmwfr)
   library(terra)
 
@@ -714,7 +800,8 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
 
   if (!file.exists(ERA5_TEMP_NC)) {
     message(
-      '[fetch] ERA5 2m_temperature + 2m_dewpoint_temperature, Legal Amazon bbox, 2003-2022'
+      '[fetch] ERA5 2m_temperature + 2m_dewpoint_temperature, Legal Amazon bbox, 
+      2003-2022'
     )
     req <- list(
       dataset_short_name = 'reanalysis-era5-single-levels-monthly-means',
@@ -723,12 +810,14 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
       year = as.character(2003:2022),
       month = sprintf('%02d', 1:12),
       time = '00:00',
-      area = c(5, -75, -20, -40),  # N, W, S, E -- buffer around Legal Amazon
+      area = c(5, -75, -20, -40), # N, W, S, E -- buffer around Legal Amazon
       format = 'netcdf',
       target = basename(ERA5_TEMP_NC)
     )
     wf_request(
-      request = req, transfer = TRUE, path = dirname(ERA5_TEMP_NC), 
+      request = req,
+      transfer = TRUE,
+      path = dirname(ERA5_TEMP_NC),
       time_out = 3600
     )
   } else {
@@ -750,8 +839,8 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
       select(-ID) |>
       bind_cols(cent |> select(code_micro)) |>
       pivot_longer(
-        starts_with(paste0(prefix, '_')), 
-        names_to = 'layer', 
+        starts_with(paste0(prefix, '_')),
+        names_to = 'layer',
         values_to = prefix
       ) |>
       mutate(
@@ -772,13 +861,15 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
     mutate(
       t_c = t2m - 273.15,
       td_c = d2m - 273.15,
-      rhum = 100 * exp((17.625 * td_c) / (243.04 + td_c)) /
-                    exp((17.625 * t_c) / (243.04 + t_c))
+      rhum = 100 *
+        exp((17.625 * td_c) / (243.04 + td_c)) /
+        exp((17.625 * t_c) / (243.04 + t_c))
     )
 
   stopifnot(
-    'relative humidity out of [0, 100] range' =
-      all(meteo$rhum >= 0 & meteo$rhum <= 100)
+    'relative humidity out of [0, 100] range' = all(
+      meteo$rhum >= 0 & meteo$rhum <= 100
+    )
   )
 
   temp_df <- meteo |> transmute(codMicroRes = code_micro, ano, mes, temp = t2m)
@@ -788,8 +879,12 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
 
   write_csv(temp_df, TEMP_OUT)
   write_csv(rhum_df, RHUM_OUT)
-  message(sprintf('[done] temp_df.csv + rhum_df.csv: %d rows each, %d-%d',
-                   nrow(temp_df), min(temp_df$ano), max(temp_df$ano)))
+  message(sprintf(
+    '[done] temp_df.csv + rhum_df.csv: %d rows each, %d-%d',
+    nrow(temp_df),
+    min(temp_df$ano),
+    max(temp_df$ano)
+  ))
 
   rm(cdsapirc, cds_key, r, cent, pts, extract_var, meteo, temp_df, rhum_df)
 }
