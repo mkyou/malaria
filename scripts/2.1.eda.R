@@ -1,8 +1,7 @@
 #-------------------------------------------------------------------------
 # 2.1.eda.R
 #
-# Exploratory figures motivating the modelling approach, for the
-# Scientific Reports revision (see paper_response/REVIEW_RESPONSE_PLAN.md).
+# Exploratory figures motivating the modelling approach.
 # Reads 1.data_wrangling.R's microregion x month panel and the Legal
 # Amazon shapefile.
 #
@@ -24,9 +23,7 @@
 #      justification for Bell/NegBin over Poisson)
 #
 # Figures saved to results/eda/. Uses the local shapefile
-# (data/spatial_data/sph_files/microrreg.shp) rather than
-# geobr::read_micro_region(): geobr's backend has been unreliable this
-# session (see 0.download_data.R section 3).
+# (data/spatial_data/sph_files/microrreg.shp).
 #-------------------------------------------------------------------------
 
 library(dplyr)
@@ -37,11 +34,6 @@ library(ragg)
 
 LEGAL_AMAZON_STATES <- c('AC', 'AM', 'AP', 'MA', 'MT', 'PA', 'RO', 'RR', 'TO')
 
-# Species: shape (points) or linetype (lines) plus color, everywhere
-# except choropleths, where color encodes rate instead. BASE_THEME
-# fixes font and size; ggsave always uses device = agg_png so
-# Liberation Sans is actually honored (the default png device on
-# Linux ignores non-alias family names).
 ESPECIE_SHAPES <- c('P. vivax' = 1, 'P. falciparum' = 4)
 ESPECIE_LINETYPES <- c('P. vivax' = 'solid', 'P. falciparum' = 'dashed')
 ESPECIE_COLORS <- c('P. vivax' = '#0072B2', 'P. falciparum' = '#D55E00')
@@ -51,10 +43,16 @@ BASE_THEME <- theme_bw(base_size = 13) +
 
 dir.create('results/eda', recursive = TRUE, showWarnings = FALSE)
 
-micro_reg_v <- read_csv('data/output_data/micro_reg_v_df.csv', show_col_types = FALSE) |>
+micro_reg_v <- read_csv(
+  'data/output_data/micro_reg_v_df.csv',
+  show_col_types = FALSE
+) |>
   mutate(especie = 'P. vivax')
 
-micro_reg_f <- read_csv('data/output_data/micro_reg_f_df.csv', show_col_types = FALSE) |>
+micro_reg_f <- read_csv(
+  'data/output_data/micro_reg_f_df.csv',
+  show_col_types = FALSE
+) |>
   mutate(especie = 'P. falciparum')
 
 panel <- bind_rows(micro_reg_v, micro_reg_f) |>
@@ -86,7 +84,13 @@ p <- serie_total |>
   scale_color_manual(values = ESPECIE_COLORS, name = NULL) +
   labs(x = NULL, y = 'Cases per 100,000 inhabitants') +
   BASE_THEME
-ggsave('results/eda/series_total.png', p, width = 10, height = 5, device = agg_png)
+ggsave(
+  'results/eda/series_total.png',
+  p,
+  width = 10,
+  height = 5,
+  device = agg_png
+)
 
 serie_estado <- panel |>
   group_by(especie, siglaUF, data) |>
@@ -105,7 +109,13 @@ p <- serie_estado |>
   facet_wrap(~siglaUF, scales = 'free_y') +
   labs(x = NULL, y = 'Cases per 100,000 inhabitants') +
   BASE_THEME
-ggsave('results/eda/series_by_state.png', p, width = 12, height = 8, device = agg_png)
+ggsave(
+  'results/eda/series_by_state.png',
+  p,
+  width = 12,
+  height = 8,
+  device = agg_png
+)
 
 
 # ===========================================================================
@@ -118,13 +128,16 @@ ggsave('results/eda/series_by_state.png', p, width = 12, height = 8, device = ag
 # data range, so color is comparable across species.
 #
 # Population is averaged (not summed) across combined months, since
-# it's an annual figure interpolated flat within each year -- summing
-# would double-count. Seasonality's rate is the mean of each year's
+# it's an annual figure interpolated flat within each year.
+# Seasonality's rate is the mean of each year's
 # monthly rate, not sum-then-divide, so it stays comparable to section
 # 1's time series scale.
 # ===========================================================================
 
-micro_sf <- st_read('data/spatial_data/sph_files/microrreg.shp', quiet = TRUE) |>
+micro_sf <- st_read(
+  'data/spatial_data/sph_files/microrreg.shp',
+  quiet = TRUE
+) |>
   mutate(code_micro = as.numeric(CD_MICRO)) |>
   filter(SIGLA_UF %in% LEGAL_AMAZON_STATES) |>
   select(code_micro)
@@ -156,7 +169,7 @@ sazonalidade <- panel |>
 
 season_limits <- range(sazonalidade$taxa, na.rm = TRUE)
 
-# One representative month per meteorological season -- the color
+# One representative month per meteorological season. The color
 # scale above still comes from all 12 months, so it isn't narrowed by
 # only plotting these four.
 SEASON_MONTHS <- c('Jan', 'Apr', 'Jul', 'Oct')
@@ -176,14 +189,18 @@ for (sp in unique(panel$especie)) {
     ggplot() +
     geom_sf(aes(fill = taxa), color = 'black', linewidth = .1) +
     scale_fill_gradientn(
-      colours = RATE_GRADIENT, limits = trend_limits,
+      colours = RATE_GRADIENT,
+      limits = trend_limits,
       name = 'Cases per 100,000'
     ) +
     facet_wrap(~ano, ncol = 2) +
     MAP_THEME
   ggsave(
-    sprintf('results/eda/map_%s_trend.png', slug), p,
-    width = 9, height = 11, device = agg_png
+    sprintf('results/eda/map_%s_trend.png', slug),
+    p,
+    width = 9,
+    height = 11,
+    device = agg_png
   )
 
   p <- micro_sf |>
@@ -194,14 +211,18 @@ for (sp in unique(panel$especie)) {
     ggplot() +
     geom_sf(aes(fill = taxa), color = 'black', linewidth = .1) +
     scale_fill_gradientn(
-      colours = RATE_GRADIENT, limits = season_limits,
+      colours = RATE_GRADIENT,
+      limits = season_limits,
       name = 'Cases per 100,000'
     ) +
     facet_wrap(~mes_label, ncol = 2) +
     MAP_THEME
   ggsave(
-    sprintf('results/eda/map_%s_seasonality.png', slug), p,
-    width = 9, height = 8, device = agg_png
+    sprintf('results/eda/map_%s_seasonality.png', slug),
+    p,
+    width = 9,
+    height = 8,
+    device = agg_png
   )
 }
 
@@ -219,7 +240,8 @@ rm(p, sp, slug)
 # directly -- controlling for all three means fitting a mean model
 # instead:
 #
-#   numCasos ~ factor(codMicroRes) + factor(ano) + factor(mes) + offset(log(populacao))
+#   numCasos ~ factor(codMicroRes) + factor(ano) + factor(mes) +
+#      offset(log(populacao))
 #
 # a plain Poisson GLM (not the paper's Bell/NegBin), fit on data
 # through 2020. Its fitted value is the Poisson-consistent expectation
@@ -231,9 +253,12 @@ rm(p, sp, slug)
 
 fit_overdisp <- function(df) {
   fit <- glm(
-    numCasos ~ factor(codMicroRes) + factor(ano) + factor(mes) +
+    numCasos ~ factor(codMicroRes) +
+      factor(ano) +
+      factor(mes) +
       offset(log(populacao)),
-    family = poisson, data = df
+    family = poisson,
+    data = df
   )
   # Pearson dispersion statistic: standard overdispersion test once the
   # mean model is controlled for; phi >> 1 confirms what the plot shows
@@ -243,13 +268,23 @@ fit_overdisp <- function(df) {
   by_micro <- df |>
     mutate(mu_hat = fitted(fit), resid_sq = (numCasos - mu_hat)^2) |>
     group_by(codMicroRes) |>
-    summarise(media = mean(mu_hat), variancia = mean(resid_sq), .groups = 'drop')
+    summarise(
+      media = mean(mu_hat),
+      variancia = mean(resid_sq),
+      .groups = 'drop'
+    )
 
-  list(by_micro = by_micro, pearson_dispersion = pearson_disp, df_residual = df.residual(fit))
+  list(
+    by_micro = by_micro,
+    pearson_dispersion = pearson_disp,
+    df_residual = df.residual(fit)
+  )
 }
 
 overdisp_v <- fit_overdisp(panel |> filter(especie == 'P. vivax', ano <= 2020))
-overdisp_f <- fit_overdisp(panel |> filter(especie == 'P. falciparum', ano <= 2020))
+overdisp_f <- fit_overdisp(
+  panel |> filter(especie == 'P. falciparum', ano <= 2020)
+)
 
 overdisp <- bind_rows(
   overdisp_v$by_micro |> mutate(especie = 'P. vivax'),
@@ -260,7 +295,14 @@ overdisp <- bind_rows(
 p <- overdisp |>
   ggplot(aes(x = media, y = variancia)) +
   geom_point(aes(shape = especie, color = especie), alpha = .6) +
-  geom_abline(aes(slope = 1, intercept = 0, linetype = 'Poisson (variance = mean)'), color = 'black') +
+  geom_abline(
+    aes(
+      slope = 1,
+      intercept = 0,
+      linetype = 'Poisson (variance = mean)'
+    ),
+    color = 'black'
+  ) +
   scale_shape_manual(values = ESPECIE_SHAPES, name = NULL) +
   scale_color_manual(values = ESPECIE_COLORS, name = NULL) +
   scale_linetype_manual(values = 'dashed', name = NULL) +
@@ -268,7 +310,13 @@ p <- overdisp |>
   scale_y_log10() +
   labs(x = 'Mean case count (log scale)', y = 'Variance (log scale)') +
   BASE_THEME
-ggsave('results/eda/overdispersion_by_microregion.png', p, width = 8, height = 6, device = agg_png)
+ggsave(
+  'results/eda/overdispersion_by_microregion.png',
+  p,
+  width = 8,
+  height = 6,
+  device = agg_png
+)
 
 vmr <- overdisp |>
   group_by(especie) |>
@@ -278,7 +326,10 @@ resumo <- vmr |>
   left_join(
     tibble(
       especie = c('P. vivax', 'P. falciparum'),
-      pearson_dispersion = c(overdisp_v$pearson_dispersion, overdisp_f$pearson_dispersion),
+      pearson_dispersion = c(
+        overdisp_v$pearson_dispersion,
+        overdisp_f$pearson_dispersion
+      ),
       df_residual = c(overdisp_v$df_residual, overdisp_f$df_residual)
     ),
     by = 'especie'
@@ -290,6 +341,22 @@ message(
 )
 print(resumo)
 
-rm(panel, micro_sf, tendencia, sazonalidade, sazonalidade_season,
-   trend_limits, season_limits, SEASON_MONTHS, fit_overdisp, overdisp,
-   overdisp_v, overdisp_f, vmr, resumo, serie_total, serie_estado, p)
+rm(
+  panel,
+  micro_sf,
+  tendencia,
+  sazonalidade,
+  sazonalidade_season,
+  trend_limits,
+  season_limits,
+  SEASON_MONTHS,
+  fit_overdisp,
+  overdisp,
+  overdisp_v,
+  overdisp_f,
+  vmr,
+  resumo,
+  serie_total,
+  serie_estado,
+  p
+)

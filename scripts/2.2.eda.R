@@ -1,10 +1,9 @@
 #-------------------------------------------------------------------------
 # 2.2.eda.R
 #
-# Covariate exploration, for the Scientific Reports revision (see
-# paper_response/REVIEW_RESPONSE_PLAN.md's "reframe decision": does
-# bringing in deforestation/rainfall/temperature/humidity actually
-# carry signal?). Reads 1.data_wrangling.R's microregion x month
+# Covariate exploration. Does bringing in
+# deforestation/rainfall/temperature/humidity actually
+# carry signal? Reads 1.data_wrangling.R's microregion x month
 # panel. Restricted to ano <= 2020 throughout -- 2018-2020 is this
 # analysis's own test window (section 3), 2021-2022 is the untouched
 # final holdout.
@@ -73,10 +72,16 @@ MAP_THEME <- BASE_THEME +
 
 dir.create('results/eda', recursive = TRUE, showWarnings = FALSE)
 
-micro_reg_v <- read_csv('data/output_data/micro_reg_v_df.csv', show_col_types = FALSE) |>
+micro_reg_v <- read_csv(
+  'data/output_data/micro_reg_v_df.csv',
+  show_col_types = FALSE
+) |>
   mutate(especie = 'P. vivax')
 
-micro_reg_f <- read_csv('data/output_data/micro_reg_f_df.csv', show_col_types = FALSE) |>
+micro_reg_f <- read_csv(
+  'data/output_data/micro_reg_f_df.csv',
+  show_col_types = FALSE
+) |>
   mutate(especie = 'P. falciparum')
 
 panel <- bind_rows(micro_reg_v, micro_reg_f) |>
@@ -130,8 +135,15 @@ serie_taxas <- panel |>
 serie_covar_regional <- panel |>
   distinct(codMicroRes, data, defor_lag2, precip_mm, temp, rhum) |>
   group_by(data) |>
-  summarise(across(all_of(COVARIATES), ~ mean(.x, na.rm = TRUE)), .groups = 'drop') |>
-  pivot_longer(all_of(COVARIATES), names_to = 'covariavel', values_to = 'valor') |>
+  summarise(
+    across(all_of(COVARIATES), ~ mean(.x, na.rm = TRUE)),
+    .groups = 'drop'
+  ) |>
+  pivot_longer(
+    all_of(COVARIATES),
+    names_to = 'covariavel',
+    values_to = 'valor'
+  ) |>
   group_by(covariavel) |>
   mutate(valor_z = as.numeric(scale(valor))) |>
   ungroup() |>
@@ -143,7 +155,9 @@ serie_combined <- bind_rows(lapply(COVARIATES, function(cv) {
     serie_covar_regional |> filter(covariavel == cv)
   )
 })) |>
-  mutate(covariavel = factor(COVARIATE_LABELS[covariavel], levels = COVARIATE_LABELS))
+  mutate(
+    covariavel = factor(COVARIATE_LABELS[covariavel], levels = COVARIATE_LABELS)
+  )
 
 SERIE_LINETYPES <- c(ESPECIE_LINETYPES, 'Covariate' = 'dotted')
 SERIE_COLORS <- c(ESPECIE_COLORS, 'Covariate' = 'black')
@@ -156,9 +170,18 @@ p <- serie_combined |>
   facet_wrap(~covariavel, ncol = 2) +
   labs(x = NULL, y = 'Standardized value (z-score)') +
   BASE_THEME
-ggsave('results/eda/covariates_series.png', p, width = 12, height = 8, device = agg_png)
+ggsave(
+  'results/eda/covariates_series.png',
+  p,
+  width = 12,
+  height = 8,
+  device = agg_png
+)
 
-micro_sf <- st_read('data/spatial_data/sph_files/microrreg.shp', quiet = TRUE) |>
+micro_sf <- st_read(
+  'data/spatial_data/sph_files/microrreg.shp',
+  quiet = TRUE
+) |>
   mutate(code_micro = as.numeric(CD_MICRO)) |>
   filter(SIGLA_UF %in% LEGAL_AMAZON_STATES) |>
   select(code_micro)
@@ -173,25 +196,46 @@ corr_espacial <- panel |>
     ),
     .groups = 'drop'
   ) |>
-  pivot_longer(starts_with('cor_'), names_prefix = 'cor_', names_to = 'covariavel', values_to = 'correlacao')
+  pivot_longer(
+    starts_with('cor_'),
+    names_prefix = 'cor_',
+    names_to = 'covariavel',
+    values_to = 'correlacao'
+  )
 
 for (sp in unique(panel$especie)) {
   slug <- ifelse(sp == 'P. vivax', 'vivax', 'falciparum')
 
   p <- micro_sf |>
-    inner_join(corr_espacial |> filter(especie == sp), by = c('code_micro' = 'codMicroRes')) |>
-    mutate(covariavel = factor(COVARIATE_LABELS[covariavel], levels = COVARIATE_LABELS)) |>
+    inner_join(
+      corr_espacial |>
+        filter(especie == sp),
+      by = c('code_micro' = 'codMicroRes')
+    ) |>
+    mutate(
+      covariavel = factor(
+        COVARIATE_LABELS[covariavel],
+        levels = COVARIATE_LABELS
+      )
+    ) |>
     ggplot() +
     geom_sf(aes(fill = correlacao), color = 'black', linewidth = .1) +
     scale_fill_gradient2(
-      low = CORR_GRADIENT[1], mid = CORR_GRADIENT[2], high = CORR_GRADIENT[3],
-      midpoint = 0, limits = c(-1, 1), name = 'Correlation'
+      low = CORR_GRADIENT[1],
+      mid = CORR_GRADIENT[2],
+      high = CORR_GRADIENT[3],
+      midpoint = 0,
+      limits = c(-1, 1),
+      name = 'Correlation'
     ) +
     facet_wrap(~covariavel, ncol = 2) +
     MAP_THEME
   ggsave(
-    sprintf('results/eda/map_%s_covariate_correlation.png', slug), p,
-    width = 9, height = 8, device = agg_png
+    sprintf('results/eda/map_%s_covariate_correlation.png', slug),
+    p,
+    width = 9,
+    height = 8,
+    device = agg_png
   )
 }
 
@@ -202,8 +246,16 @@ for (sp in unique(panel$especie)) {
 corr_defor_comparacao <- panel |>
   group_by(especie, codMicroRes) |>
   summarise(
-    cor_atual = suppressWarnings(cor(numCasos, defor_km2, use = 'complete.obs')),
-    cor_lag2 = suppressWarnings(cor(numCasos, defor_lag2, use = 'complete.obs')),
+    cor_atual = suppressWarnings(cor(
+      numCasos,
+      defor_km2,
+      use = 'complete.obs'
+    )),
+    cor_lag2 = suppressWarnings(cor(
+      numCasos,
+      defor_lag2,
+      use = 'complete.obs'
+    )),
     .groups = 'drop'
   )
 
@@ -219,7 +271,13 @@ p <- corr_defor_comparacao |>
     y = 'Correlation with 2-year-lagged deforestation'
   ) +
   BASE_THEME
-ggsave('results/eda/deforestation_lag_comparison.png', p, width = 7, height = 7, device = agg_png)
+ggsave(
+  'results/eda/deforestation_lag_comparison.png',
+  p,
+  width = 7,
+  height = 7,
+  device = agg_png
+)
 
 resumo_defor_lag <- corr_defor_comparacao |>
   group_by(especie) |>
@@ -230,7 +288,10 @@ resumo_defor_lag <- corr_defor_comparacao |>
     .groups = 'drop'
   )
 
-message('Correlation with deforestation, same-year vs. 2-year-lagged (median across microregions):')
+message(
+  'Correlation with deforestation, 
+  same-year vs. 2-year-lagged (median across microregions):'
+)
 print(resumo_defor_lag)
 
 
@@ -259,7 +320,12 @@ print(resumo_defor_lag)
 # the summary below for that reason.
 # ===========================================================================
 
-to_decomp <- function(x) decompose(ts(x, start = c(2003, 1), frequency = 12), type = 'additive')
+to_decomp <- function(x) {
+  decompose(
+    ts(x, start = c(2003, 1), frequency = 12),
+    type = 'additive'
+  )
+}
 
 decomp_vars <- c('P. vivax', 'P. falciparum', COVARIATES)
 
@@ -267,27 +333,50 @@ micro_wide <- panel |>
   select(codMicroRes, especie, data, numCasos, all_of(COVARIATES)) |>
   pivot_wider(
     id_cols = c(codMicroRes, data, all_of(COVARIATES)),
-    names_from = especie, values_from = numCasos
+    names_from = especie,
+    values_from = numCasos
   ) |>
   arrange(codMicroRes, data)
 
 decompose_micro <- function(df) {
   decs <- lapply(df[decomp_vars], to_decomp)
   names(decs) <- decomp_vars
-  expand.grid(especie = c('P. vivax', 'P. falciparum'), covariavel = COVARIATES, stringsAsFactors = FALSE) |>
+  expand.grid(
+    especie = c('P. vivax', 'P. falciparum'),
+    covariavel = COVARIATES,
+    stringsAsFactors = FALSE
+  ) |>
     rowwise() |>
     mutate(
-      Raw = suppressWarnings(cor(df[[especie]], df[[covariavel]], use = 'complete.obs')),
-      Trend = suppressWarnings(cor(decs[[especie]]$trend, decs[[covariavel]]$trend, use = 'complete.obs')),
-      Seasonal = suppressWarnings(cor(decs[[especie]]$seasonal, decs[[covariavel]]$seasonal, use = 'complete.obs')),
-      Remainder = suppressWarnings(cor(decs[[especie]]$random, decs[[covariavel]]$random, use = 'complete.obs'))
+      Raw = suppressWarnings(cor(
+        df[[especie]],
+        df[[covariavel]],
+        use = 'complete.obs'
+      )),
+      Trend = suppressWarnings(cor(
+        decs[[especie]]$trend,
+        decs[[covariavel]]$trend,
+        use = 'complete.obs'
+      )),
+      Seasonal = suppressWarnings(cor(
+        decs[[especie]]$seasonal,
+        decs[[covariavel]]$seasonal,
+        use = 'complete.obs'
+      )),
+      Remainder = suppressWarnings(cor(
+        decs[[especie]]$random,
+        decs[[covariavel]]$random,
+        use = 'complete.obs'
+      ))
     ) |>
     ungroup()
 }
 
 decomp_por_micro <- micro_wide |>
   group_split(codMicroRes) |>
-  lapply(function(df) decompose_micro(df) |> mutate(codMicroRes = df$codMicroRes[1])) |>
+  lapply(function(df) {
+    decompose_micro(df) |> mutate(codMicroRes = df$codMicroRes[1])
+  }) |>
   bind_rows() |>
   mutate(Seasonal = ifelse(covariavel == 'defor_lag2', NA, Seasonal))
 
@@ -304,7 +393,8 @@ decomp_summary <- decomp_por_micro |>
 message('Median (across microregions) component correlation with case count:')
 print(decomp_summary)
 
-decomp_summary |> write_csv('results/eda/covariates_decomposition_correlation.csv')
+decomp_summary |>
+  write_csv('results/eda/covariates_decomposition_correlation.csv')
 
 # Illustration: relative humidity (the covariate with the sharpest gap
 # between raw and seasonal correlation) decomposed alongside both
@@ -326,9 +416,14 @@ taxas_wide <- panel |>
 covar_regional_wide <- panel |>
   distinct(codMicroRes, data, defor_lag2, precip_mm, temp, rhum) |>
   group_by(data) |>
-  summarise(across(all_of(COVARIATES), ~ mean(.x, na.rm = TRUE)), .groups = 'drop')
+  summarise(
+    across(all_of(COVARIATES), ~ mean(.x, na.rm = TRUE)),
+    .groups = 'drop'
+  )
 
-full_series <- taxas_wide |> left_join(covar_regional_wide, by = 'data') |> arrange(data)
+full_series <- taxas_wide |>
+  left_join(covar_regional_wide, by = 'data') |>
+  arrange(data)
 
 decomps <- lapply(full_series[decomp_vars], to_decomp)
 names(decomps) <- decomp_vars
@@ -354,7 +449,12 @@ ilustracao <- bind_rows(
   componentes_long('P. falciparum', 'P. falciparum'),
   componentes_long('rhum', 'Covariate')
 ) |>
-  mutate(component = factor(component, levels = c('Observed', 'Trend', 'Seasonal', 'Remainder')))
+  mutate(
+    component = factor(
+      component,
+      levels = c('Observed', 'Trend', 'Seasonal', 'Remainder')
+    )
+  )
 
 p <- ilustracao |>
   ggplot(aes(x = data, y = valor_z, linetype = serie, color = serie)) +
@@ -365,15 +465,38 @@ p <- ilustracao |>
   labs(x = NULL, y = 'Standardized value (z-score)') +
   BASE_THEME
 ggsave(
-  'results/eda/covariates_decomposition_example_rhum.png', p,
-  width = 12, height = 10, device = agg_png
+  'results/eda/covariates_decomposition_example_rhum.png',
+  p,
+  width = 12,
+  height = 10,
+  device = agg_png
 )
 
-rm(p, sp, slug, serie_taxas, serie_covar_regional, serie_combined, SERIE_LINETYPES,
-   SERIE_COLORS, corr_espacial, corr_defor_comparacao, resumo_defor_lag,
-   taxas_wide, covar_regional_wide, full_series, to_decomp, decomp_vars, decomps,
-   micro_wide, decompose_micro, decomp_por_micro, decomp_summary,
-   componentes_long, ilustracao)
+rm(
+  p,
+  sp,
+  slug,
+  serie_taxas,
+  serie_covar_regional,
+  serie_combined,
+  SERIE_LINETYPES,
+  SERIE_COLORS,
+  corr_espacial,
+  corr_defor_comparacao,
+  resumo_defor_lag,
+  taxas_wide,
+  covar_regional_wide,
+  full_series,
+  to_decomp,
+  decomp_vars,
+  decomps,
+  micro_wide,
+  decompose_micro,
+  decomp_por_micro,
+  decomp_summary,
+  componentes_long,
+  ilustracao
+)
 
 
 # ===========================================================================
@@ -398,9 +521,12 @@ panel_z <- panel |>
 
 fit_intime <- function(df) {
   base <- glm(
-    numCasos ~ factor(codMicroRes) + ns(ano, df = 3) + factor(mes) +
+    numCasos ~ factor(codMicroRes) +
+      ns(ano, df = 3) +
+      factor(mes) +
       offset(log(populacao)),
-    family = poisson, data = df
+    family = poisson,
+    data = df
   )
   full <- update(base, . ~ . + defor_lag2 + precip_mm + temp + rhum)
   list(base = base, full = full)
@@ -426,7 +552,9 @@ rate_ratios <- bind_rows(lapply(names(fits_intime), function(sp) {
   )
 }))
 
-message('In-time rate ratios (per 1-SD increase in same-period covariate value):')
+message(
+  'In-time rate ratios (per 1-SD increase in same-period covariate value):'
+)
 print(rate_ratios)
 
 lrt_resultados <- bind_rows(lapply(names(fits_intime), function(sp) {
@@ -435,12 +563,16 @@ lrt_resultados <- bind_rows(lapply(names(fits_intime), function(sp) {
     especie = sp,
     deviance_base = a$`Resid. Dev`[1],
     deviance_full = a$`Resid. Dev`[2],
-    deviance_explicada_pct = 100 * (a$`Resid. Dev`[1] - a$`Resid. Dev`[2]) / a$`Resid. Dev`[1],
+    deviance_explicada_pct = 100 *
+      (a$`Resid. Dev`[1] - a$`Resid. Dev`[2]) /
+      a$`Resid. Dev`[1],
     p_valor = a$`Pr(>Chi)`[2]
   )
 }))
 
-message('In-time: deviance explained by adding all 4 covariates (likelihood-ratio test):')
+message(
+  'In-time: deviance explained by adding all 4 covariates (likelihood-ratio test):'
+)
 print(lrt_resultados)
 
 rate_ratios |> write_csv('results/eda/covariates_intime_rate_ratios.csv')
@@ -486,12 +618,16 @@ panel_lagged <- panel |>
 
 fit_predictive <- function(especie_alvo) {
   treino <- panel_lagged |> filter(especie == especie_alvo, ano < 2018)
-  teste <- panel_lagged |> filter(especie == especie_alvo, ano >= 2018, ano <= 2020)
+  teste <- panel_lagged |>
+    filter(especie == especie_alvo, ano >= 2018, ano <= 2020)
 
   base <- glm(
-    numCasos ~ factor(codMicroRes) + ns(ano, df = 3) + factor(mes) +
+    numCasos ~ factor(codMicroRes) +
+      ns(ano, df = 3) +
+      factor(mes) +
       offset(log(populacao)),
-    family = poisson, data = treino
+    family = poisson,
+    data = treino
   )
   full <- update(base, . ~ . + defor_lag2 + precip_mm + temp + rhum)
 
@@ -516,12 +652,23 @@ resultados_preditivos <- bind_rows(
   fit_predictive('P. falciparum')
 )
 
-message('Realistic-lag predictive test (rate scale, test = 2018-2020), with vs. without covariates:')
+message(
+  'Realistic-lag predictive test (rate scale, test = 2018-2020), 
+  with vs. without covariates:'
+)
 print(resultados_preditivos)
 
-message('For reference, the paper\'s own test-set metrics (different test window):')
-print(read_csv('results/test_metrics_microrregion_vivax.csv', show_col_types = FALSE))
-print(read_csv('results/test_metrics_microrregion_falciparum.csv', show_col_types = FALSE))
+message(
+  'For reference, the paper\'s own test-set metrics (different test window):'
+)
+print(read_csv(
+  'results/test_metrics_microrregion_vivax.csv',
+  show_col_types = FALSE
+))
+print(read_csv(
+  'results/test_metrics_microrregion_falciparum.csv',
+  show_col_types = FALSE
+))
 
 resultados_preditivos |> write_csv('results/eda/covariates_predictive_test.csv')
 
