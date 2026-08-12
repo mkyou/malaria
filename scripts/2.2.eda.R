@@ -5,33 +5,45 @@
 # paper_response/REVIEW_RESPONSE_PLAN.md's "reframe decision": does
 # bringing in deforestation/rainfall/temperature/humidity actually
 # carry signal?). Reads 1.data_wrangling.R's microregion x month
-# panel. Restricted to ano <= 2020 throughout the whole script --
-# 2018-2020 is reserved as this analysis's own test window and
-# 2021-2022 is the untouched final holdout; see section 2 (not yet
-# written) for why.
+# panel. Restricted to ano <= 2020 throughout -- 2018-2020 is this
+# analysis's own test window (section 3), 2021-2022 is the untouched
+# final holdout.
 #
 # Two questions, kept deliberately separate rather than conflated into
 # one model:
 #   1. In-time: does a covariate explain case rate once microregion
-#      and time are controlled for, using the *same-period* covariate
-#      value? Answers "is there a real relationship here at all."
-#   2. Realistic-lag / predictive: same question, but using only
-#      covariate values that would actually have been published in
-#      time for a forecast -- ERA5 lag 1 month (~1 month structural
-#      lag to compute a monthly mean, well inside the ~5-day-to-3-
-#      month latency Copernicus documents), deforestation already
-#      lag 2 years (PRODES's own consolidated-data lag is 6-18 months
-#      after the PRODES-year ends, so lag 2y has comfortable margin;
-#      lag 1y would be underwater for early-year predictions -- see
-#      commit for sources). Answers "could this actually work as a
-#      predictor," not just "is it correlated."
+#      and time are controlled for, using its *same-period* value?
+#      Answers "is there a real relationship here at all."
+#   2. Realistic-lag / predictive: same question, using only covariate
+#      values that would actually have been published in time for a
+#      forecast -- ERA5 lag 1 month (its monthly mean has ~1 month
+#      structural lag to compute, well inside Copernicus's documented
+#      5-day-to-3-month latency), deforestation lag 2 years (PRODES's
+#      consolidated-data lag is 6-18 months after the PRODES-year
+#      ends, so lag 2y has comfortable margin; lag 1y would be
+#      underwater for early-year predictions). Answers "could this
+#      actually work as a predictor," not just "is it correlated."
 #
 # Sections:
 #   1. Covariate vs. case rate: temporal and spatial correlation, plus
 #      (1b) a trend/seasonal/remainder decomposition of the temporal
-#      story, since raw correlation conflates the three (this file)
-#   2. In-time explanatory power (GLM)               [not yet written]
-#   3. Realistic-lag predictive power (GLM, train/test) [not yet written]
+#      story, since raw correlation conflates the three
+#   2. In-time explanatory power (GLM)
+#   3. Realistic-lag predictive power (GLM, train < 2018 / test 2018-2020)
+#
+# Sections 2-3 share one mean structure, mirroring the paper's actual
+# Bell spatio-temporal model rather than something EDA-only and
+# disposable: microregion as a fixed effect (stand-in for
+# f(idArea, model='bym2')), a natural spline in ano (stand-in for the
+# smooth f(ano, model='rw1') year trend), and factor(mes) (calendar-
+# month seasonality, stand-in for the cyclic f(mes, model='rw2')). Not
+# factor(idMes)/factor(ano): section 3 predicts into test years the
+# fit never saw, and dummy variables can't extrapolate to a level they
+# were never fit on -- a natural spline can (linear beyond the
+# boundary knots by construction). This is a plain Poisson GLM
+# standing in for a diagnostic question ("is there something here"),
+# not a preview of the real INLA fit -- there's no GLM equivalent of
+# BYM2's spatial smoothing or the random-walk priors.
 #
 # Figures saved to results/eda/, same conventions as 2.1.eda.R: no
 # baked-in titles (captions go in LaTeX), species double-encoded by
@@ -92,10 +104,9 @@ COVARIATE_LABELS <- c(
 # Spatial: per-microregion Pearson correlation between the covariate
 # and case counts across that microregion's own time series (2003-2020),
 # mapped -- shows where the relationship is strong/weak/reversed,
-# which an aggregate correlation number can't. deforestation is state-,
+# which an aggregate correlation number can't. Deforestation is state-,
 # not microregion-grain, so its map shows blocks of same-state
-# microregions sharing one value, not genuine within-state texture --
-# expected, not a bug.
+# microregions sharing one value, not genuine within-state texture.
 #
 # Purely descriptive: no controls for microregion/time here (that's
 # what sections 2-3's GLMs are for). This is "do these move together
@@ -184,13 +195,10 @@ for (sp in unique(panel$especie)) {
   )
 }
 
-# How much correlation does the lag actually cost? defor_km2 (same
-# year, what 1.data_wrangling.R now also keeps) vs. defor_lag2 (2
-# years, the realistic/usable one, per PRODES's own publication
-# lag -- see the header). Same-year deforestation could never actually
-# be used as a predictor (it isn't published yet), so this isn't "which
-# one to use" -- it's "how much signal do we give up by using the one
-# that's actually available."
+# Same-year deforestation (defor_km2) could never actually be used as
+# a predictor (PRODES publishes with a lag), so this isn't "which one
+# to use" -- it's "how much signal is given up by using the lag that's
+# actually available."
 corr_defor_comparacao <- panel |>
   group_by(especie, codMicroRes) |>
   summarise(
@@ -233,11 +241,9 @@ print(resumo_defor_lag)
 # covariation: shared long-run trend, shared within-year seasonality,
 # and genuine short-term (month-to-month) covariation. Classical
 # additive decomposition (stats::decompose(), frequency=12) separates
-# them. Done per microregion (its own 216-month series, 2003-2020),
-# same as the correlation maps and the deforestation lag comparison
-# above, then summarized by the median across microregions -- not one
-# decomposition of the region-wide aggregate, which would hide
-# microregion-level heterogeneity the same way a single aggregate
+# them, per microregion (its own 216-month series), summarized by the
+# median across microregions -- an aggregate-level decomposition would
+# hide microregion-level heterogeneity the same way an aggregate
 # correlation number would.
 #
 # defor_lag2's "seasonal" component is a decomposition ARTIFACT, not
@@ -300,18 +306,12 @@ print(decomp_summary)
 
 decomp_summary |> write_csv('results/eda/covariates_decomposition_correlation.csv')
 
-# No separate plot for this table -- Raw/Trend/Seasonal/Remainder x
-# covariate x species is only 4x4x2 = 32 numbers, the CSV reads fine
-# on its own without a redundant figure.
-
 # Illustration: relative humidity (the covariate with the sharpest gap
 # between raw and seasonal correlation) decomposed alongside both
 # species' case rates, so "trend/seasonal/remainder" has a concrete
-# picture to point to instead of just the summary numbers above. Uses
-# the region-wide aggregate series (not per-microregion, unlike the
-# summary table above) purely because one clean picture teaches the
-# concept better than 107 -- it's not meant to stand in as evidence,
-# the median table above is.
+# picture to point to. Region-wide aggregate series, since one clean
+# picture teaches the concept better than 107 -- the median table
+# above is the evidence, this is illustration.
 taxas_wide <- panel |>
   group_by(especie, data) |>
   summarise(
@@ -374,3 +374,155 @@ rm(p, sp, slug, serie_taxas, serie_covar_regional, serie_combined, SERIE_LINETYP
    taxas_wide, covar_regional_wide, full_series, to_decomp, decomp_vars, decomps,
    micro_wide, decompose_micro, decomp_por_micro, decomp_summary,
    componentes_long, ilustracao)
+
+
+# ===========================================================================
+# SECTION 2: In-time explanatory power (GLM)
+#
+# Does each covariate explain case counts, using its *same-period*
+# value, once microregion and time are controlled for (mean structure
+# in the file header)? Fit on all of ano <= 2020 -- no train/test
+# split here, that's section 3, which specifically needs an
+# out-of-sample test. Covariates are z-scored before fitting so rate
+# ratios mean "effect of a one-SD change" for all four, comparable
+# despite being on wildly different scales (km2, mm, Kelvin, %).
+# Reports each covariate's rate ratio (95% CI) and the deviance
+# explained versus the same fixed-effect structure without covariates
+# (likelihood-ratio test).
+# ===========================================================================
+
+library(splines)
+
+panel_z <- panel |>
+  mutate(across(all_of(COVARIATES), ~ as.numeric(scale(.x))))
+
+fit_intime <- function(df) {
+  base <- glm(
+    numCasos ~ factor(codMicroRes) + ns(ano, df = 3) + factor(mes) +
+      offset(log(populacao)),
+    family = poisson, data = df
+  )
+  full <- update(base, . ~ . + defor_lag2 + precip_mm + temp + rhum)
+  list(base = base, full = full)
+}
+
+fits_intime <- lapply(
+  c('P. vivax', 'P. falciparum'),
+  function(sp) fit_intime(panel_z |> filter(especie == sp))
+)
+names(fits_intime) <- c('P. vivax', 'P. falciparum')
+
+rate_ratios <- bind_rows(lapply(names(fits_intime), function(sp) {
+  full <- fits_intime[[sp]]$full
+  coefs <- coef(summary(full))
+  ci <- confint.default(full, parm = COVARIATES)
+  tibble(
+    especie = sp,
+    covariavel = COVARIATES,
+    rate_ratio = exp(coefs[COVARIATES, 'Estimate']),
+    ci_low = exp(ci[, 1]),
+    ci_high = exp(ci[, 2]),
+    p_valor = coefs[COVARIATES, 'Pr(>|z|)']
+  )
+}))
+
+message('In-time rate ratios (per 1-SD increase in same-period covariate value):')
+print(rate_ratios)
+
+lrt_resultados <- bind_rows(lapply(names(fits_intime), function(sp) {
+  a <- anova(fits_intime[[sp]]$base, fits_intime[[sp]]$full, test = 'Chisq')
+  tibble(
+    especie = sp,
+    deviance_base = a$`Resid. Dev`[1],
+    deviance_full = a$`Resid. Dev`[2],
+    deviance_explicada_pct = 100 * (a$`Resid. Dev`[1] - a$`Resid. Dev`[2]) / a$`Resid. Dev`[1],
+    p_valor = a$`Pr(>Chi)`[2]
+  )
+}))
+
+message('In-time: deviance explained by adding all 4 covariates (likelihood-ratio test):')
+print(lrt_resultados)
+
+rate_ratios |> write_csv('results/eda/covariates_intime_rate_ratios.csv')
+lrt_resultados |> write_csv('results/eda/covariates_intime_deviance.csv')
+
+rm(panel_z, fit_intime, fits_intime, rate_ratios, lrt_resultados)
+
+
+# ===========================================================================
+# SECTION 3: Realistic-lag predictive power (GLM, train/test)
+#
+# Same mean structure as section 2, but covariates re-lagged to values
+# that would actually have been available at prediction time: ERA5
+# (precip/temp/rhum) lag 1 month; deforestation stays lag 2 years
+# (already realistic, see file header). Trained on ano < 2018,
+# evaluated out-of-sample on 2018-2020 -- 2021-2022 stays untouched.
+# This is the test that actually answers "could this work as a
+# predictor," not just "is it correlated" (section 2) or "is it
+# correlated at all, anywhere" (section 1).
+#
+# Scored with scripts/loss_functions.R -- the same mbe/nrmse/rae/
+# rmsle/rse/cor the paper's own models report
+# (results/test_metrics_microrregion_{vivax,falciparum}.csv), on the
+# same rate scale (cases per 100k, not raw counts), so these numbers
+# are actually readable against something. That test window is not
+# necessarily 2018-2020 though, so treat this as a rough "where does
+# this stand" read, not a strict head-to-head.
+# ===========================================================================
+
+source('scripts/loss_functions.R')
+
+panel_lagged <- panel |>
+  arrange(codMicroRes, idMes) |>
+  group_by(codMicroRes) |>
+  mutate(
+    precip_mm = lag(precip_mm, 1),
+    temp = lag(temp, 1),
+    rhum = lag(rhum, 1)
+  ) |>
+  ungroup() |>
+  filter(!is.na(precip_mm)) |>
+  mutate(across(all_of(COVARIATES), ~ as.numeric(scale(.x))))
+
+fit_predictive <- function(especie_alvo) {
+  treino <- panel_lagged |> filter(especie == especie_alvo, ano < 2018)
+  teste <- panel_lagged |> filter(especie == especie_alvo, ano >= 2018, ano <= 2020)
+
+  base <- glm(
+    numCasos ~ factor(codMicroRes) + ns(ano, df = 3) + factor(mes) +
+      offset(log(populacao)),
+    family = poisson, data = treino
+  )
+  full <- update(base, . ~ . + defor_lag2 + precip_mm + temp + rhum)
+
+  real <- teste$numCasos / teste$populacao * 1e5
+  pred_base <- predict(base, teste, type = 'response') / teste$populacao * 1e5
+  pred_full <- predict(full, teste, type = 'response') / teste$populacao * 1e5
+
+  tibble(
+    especie = especie_alvo,
+    modelo = c('sem_covariaveis', 'com_covariaveis'),
+    mbe = c(mbe(real, pred_base), mbe(real, pred_full)),
+    nrmse = c(nrmse(real, pred_base), nrmse(real, pred_full)),
+    rae = c(rae(real, pred_base), rae(real, pred_full)),
+    rmsle = c(rmsle(real, pred_base), rmsle(real, pred_full)),
+    rse = c(rse(real, pred_base), rse(real, pred_full)),
+    cor = c(cor(real, pred_base), cor(real, pred_full))
+  )
+}
+
+resultados_preditivos <- bind_rows(
+  fit_predictive('P. vivax'),
+  fit_predictive('P. falciparum')
+)
+
+message('Realistic-lag predictive test (rate scale, test = 2018-2020), with vs. without covariates:')
+print(resultados_preditivos)
+
+message('For reference, the paper\'s own test-set metrics (different test window):')
+print(read_csv('results/test_metrics_microrregion_vivax.csv', show_col_types = FALSE))
+print(read_csv('results/test_metrics_microrregion_falciparum.csv', show_col_types = FALSE))
+
+resultados_preditivos |> write_csv('results/eda/covariates_predictive_test.csv')
+
+rm(panel_lagged, fit_predictive, resultados_preditivos)
