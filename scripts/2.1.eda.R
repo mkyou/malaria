@@ -25,8 +25,9 @@
 #      justification for Bell/NegBin over Poisson, before any model
 #      is fit)
 #
-# Figures saved to results/eda/. Choropleth style (theme_bw(), the
-# blue-to-red scale_fill_gradientn()) follows scripts/4.error_analysis.R.
+# Figures saved to results/eda/. Choropleth base style (theme_bw(),
+# scale_fill_gradientn()) follows scripts/4.error_analysis.R; the
+# specific white-to-red palette is its own (brighter/more saturated).
 # Uses the local shapefile (data/spatial_data/sph_files/microrreg.shp)
 # rather than geobr::read_micro_region(), unlike that script -- geobr's
 # backend has repeatedly been unreachable this session (see
@@ -41,18 +42,23 @@ library(ragg)
 
 LEGAL_AMAZON_STATES <- c('AC', 'AM', 'AP', 'MA', 'MT', 'PA', 'RO', 'RR', 'TO')
 
-# Shared across every figure. Species is black-on-white: shape (point
-# geoms) or linetype (line geoms), never color -- readable in
-# grayscale print. Rate (choropleths) is the one place color is used,
-# via the blue-to-red gradient scripts/4.error_analysis.R already
-# established. BASE_THEME fixes font (Liberation Sans, an Arial
-# metric-equivalent already installed) and size (13pt base, vs
-# ggplot2's default 11) consistently too; ggsave always uses
-# device = agg_png so the family is actually respected (the default
-# png device on Linux frequently ignores non-alias family names).
+# Shared across every figure. Species is double-encoded -- shape
+# (point geoms) or linetype (line geoms) *and* color -- so the
+# distinction survives grayscale print (shape/linetype alone) while
+# still reading well in color (on screen, or a color-printed version).
+# Rate (choropleths) is the one place color means something else
+# entirely: white-to-red sequential (rate is never negative, so no
+# diverging midpoint makes sense here -- see 2.2.eda.R for where
+# diverging color is actually used, correlation). BASE_THEME fixes
+# font (Liberation Sans, an Arial metric-equivalent already installed)
+# and size (13pt base, vs ggplot2's default 11) consistently too;
+# ggsave always uses device = agg_png so the family is actually
+# respected (the default png device on Linux frequently ignores
+# non-alias family names).
 ESPECIE_SHAPES <- c('P. vivax' = 1, 'P. falciparum' = 4)
 ESPECIE_LINETYPES <- c('P. vivax' = 'solid', 'P. falciparum' = 'dashed')
-RATE_GRADIENT <- c('#d7e1ee', '#991f17')
+ESPECIE_COLORS <- c('P. vivax' = '#0072B2', 'P. falciparum' = '#D55E00')
+RATE_GRADIENT <- c('#f7f7f7', '#b2182b')
 BASE_THEME <- theme_bw(base_size = 13) +
   theme(text = element_text(family = 'Liberation Sans'))
 
@@ -87,9 +93,10 @@ serie_total <- panel |>
   mutate(taxa = numCasos / populacao * 1e5)
 
 p <- serie_total |>
-  ggplot(aes(x = data, y = taxa, linetype = especie)) +
+  ggplot(aes(x = data, y = taxa, linetype = especie, color = especie)) +
   geom_line() +
   scale_linetype_manual(values = ESPECIE_LINETYPES, name = NULL) +
+  scale_color_manual(values = ESPECIE_COLORS, name = NULL) +
   labs(x = NULL, y = 'Cases per 100,000 inhabitants') +
   BASE_THEME
 ggsave('results/eda/series_total.png', p, width = 10, height = 5, device = agg_png)
@@ -104,9 +111,10 @@ serie_estado <- panel |>
   mutate(taxa = numCasos / populacao * 1e5)
 
 p <- serie_estado |>
-  ggplot(aes(x = data, y = taxa, linetype = especie)) +
+  ggplot(aes(x = data, y = taxa, linetype = especie, color = especie)) +
   geom_line() +
   scale_linetype_manual(values = ESPECIE_LINETYPES, name = NULL) +
+  scale_color_manual(values = ESPECIE_COLORS, name = NULL) +
   facet_wrap(~siglaUF, scales = 'free_y') +
   labs(x = NULL, y = 'Cases per 100,000 inhabitants') +
   BASE_THEME
@@ -277,15 +285,16 @@ overdisp <- bind_rows(
 
 p <- overdisp |>
   ggplot(aes(x = media, y = variancia)) +
-  geom_point(aes(shape = especie), color = 'black', alpha = .6) +
-  geom_abline(aes(slope = 1, intercept = 0, linetype = 'Poisson (variance = mean)')) +
+  geom_point(aes(shape = especie, color = especie), alpha = .6) +
+  geom_abline(aes(slope = 1, intercept = 0, linetype = 'Poisson (variance = mean)'), color = 'black') +
   scale_shape_manual(values = ESPECIE_SHAPES, name = NULL) +
+  scale_color_manual(values = ESPECIE_COLORS, name = NULL) +
   scale_linetype_manual(values = 'dashed', name = NULL) +
   scale_x_log10() +
   scale_y_log10() +
   labs(x = 'Mean case count (log scale)', y = 'Variance (log scale)') +
   BASE_THEME
-ggsave('results/eda/overdispersion.png', p, width = 8, height = 6, device = agg_png)
+ggsave('results/eda/overdispersion_by_microregion.png', p, width = 8, height = 6, device = agg_png)
 
 vmr <- overdisp |>
   group_by(especie) |>
@@ -306,12 +315,6 @@ message(
   'microregion/year/month (1 = Poisson-consistent):'
 )
 print(resumo)
-
-# Saved as the citable evidence behind the overdispersion.png plot:
-# the per-microregion values behind each point, and the headline
-# statistics (Pearson dispersion phi, median variance-to-mean ratio).
-overdisp |> write_csv('results/eda/overdispersion_by_microregion.csv')
-resumo |> write_csv('results/eda/overdispersion_summary.csv')
 
 rm(panel, micro_sf, tendencia, sazonalidade, sazonalidade_season,
    trend_limits, season_limits, SEASON_MONTHS, fit_overdisp, overdisp,

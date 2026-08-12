@@ -171,7 +171,7 @@ rm(uf_lookup, expected_codes, micro_sf)
 # ===========================================================================
 
 deforestation_df <- read_csv('data/support_data/deforestation_df.csv') |>
-  select(siglaUF = state, ano, defor_lag2 = km2_lag2)
+  select(siglaUF = state, ano, defor_km2 = km2, defor_lag2 = km2_lag2)
 
 precip_df <- read_csv('data/support_data/precip_df.csv')
 temp_df <- read_csv('data/support_data/temp_df.csv')

@@ -495,6 +495,11 @@ if (file.exists(CENTROIDS_OUT)) {
 # measurement -- flagged via `source = secondary_unverified_state_
 # allocated`, not to be read as real state data for those years.
 #
+# 2001-2002 use the same secondary source too, but only to make
+# km2_lag2 (the 2-year lag actually used downstream) complete from
+# ano=2003 onward -- YEAR_START is 2003, so 2001/2002 rows themselves
+# are dropped from the written file after the lag is computed.
+#
 # Server is flaky (frequent 502s), paginates at 50000 features -- fetched
 # year-by-year with retries and pagination.
 # ===========================================================================
@@ -599,9 +604,16 @@ if (file.exists(DEFORESTATION_OUT)) {
   STATES <- LEGAL_AMAZON_STATES
 
   # Secondary-sourced NATIONAL totals (unverified -- see README), used
-  # only for 2003-2007, allocated across states by their average real
-  # share of the 2008-2010 total.
+  # only for 2001-2007 (2001-2002 solely to complete km2_lag2 for
+  # ano=2003-2004, see above), allocated across states by their
+  # average real share of the 2008-2010 total. Wikipedia's "Estimates
+  # of the rates of deforestation in the Amazon rainforest from 1970
+  # to 2022" table (INPE/FAO-sourced), cross-checked against INPE
+  # press-release text -- confirmed 2003-2007 here still match that
+  # table to within 1 km² (2006: 14286 here vs 14285 there, negligible).
   secondary_national_km2 <- c(
+    `2001` = 18165,
+    `2002` = 21651,
     `2003` = 25396,
     `2004` = 27772,
     `2005` = 19014,
@@ -630,11 +642,12 @@ if (file.exists(DEFORESTATION_OUT)) {
     select(state, ano, km2, source)
 
   prodes <- bind_rows(primary_state, allocated) |>
-    complete(state = STATES, ano = 2003:2022) |>
+    complete(state = STATES, ano = 2001:2022) |>
     arrange(state, ano) |>
     group_by(state) |>
     mutate(km2_lag2 = lag(km2, 2)) |>
-    ungroup()
+    ungroup() |>
+    filter(ano >= YEAR_START)
 
   write_csv(prodes, DEFORESTATION_OUT)
   message(sprintf(
