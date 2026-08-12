@@ -289,8 +289,24 @@ run_simulations <- function(n_sim, W, n_years, n_months = 12,
 set.seed(2025)
 
 n_sim <- 10
-am_path <- 'outputs/am_map.graph'
-W <- as.matrix(inla.graph2matrix(inla.read.graph(am_path)))
+
+# Amazonas-state adjacency, built inline rather than read from
+# outputs/am_map.graph: that file (and the other 8 states' graphs
+# alongside it) used to come from scripts/2.spatial_data_wrangling.R,
+# now retired since this was its only remaining consumer. All of AM's
+# municipalities are used directly (no filter to municipalities
+# "present in the panel" -- since 0.download_data.R's SIDRA migration
+# the malaria panel covers every municipality in the country anyway,
+# zero-filled where there's no data, so that filter was already a
+# no-op).
+library(geobr)
+library(spdep)
+
+am_map <- read_municipality(code_muni = 'AM', year = 2017, simplified = FALSE)
+am_graph_path <- tempfile(fileext = '.graph')
+nb2INLA(am_graph_path, poly2nb(am_map))
+W <- as.matrix(inla.graph2matrix(inla.read.graph(am_graph_path)))
+rm(am_map, am_graph_path)
 
 run1 <- run_simulations(n_sim, W, n_years = 2)
 run2 <- run_simulations(n_sim, W, n_years = 4)
