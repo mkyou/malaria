@@ -1,29 +1,18 @@
 #-------------------------------------------------------------------------
 # 2.1.eda.R
 #
-# Exploratory figures motivating the modelling approach.
-# Reads 1.data_wrangling.R's microregion x month panel and the Legal
-# Amazon shapefile.
+# Exploratory figures motivating the modelling approach. Reads
+# 1.data_wrangling.R's microregion x month panel and the Legal Amazon
+# shapefile.
 #
-# Paper-facing conventions: no titles/subtitles baked into figures
-# (captions are set in LaTeX); species distinguished by shape/linetype
-# and color, so figures stay legible in grayscale print but still read
-# well in color; Liberation Sans (an Arial metric-equivalent) via ragg
-# for a consistent font/size; choropleth rate uses a white-to-red
-# sequential palette (rate is never negative, so no diverging midpoint
-# applies).
+# Paper-facing conventions: no baked-in titles, species double-encoded
+# by shape/linetype/color (grayscale-safe), Liberation Sans via ragg,
+# sequential white-to-red rate scale.
 #
-# Sections:
-#   1. Case time series (total and by state)
-#   2. Spatial distribution of cases: trend (5 snapshot years) and
-#      seasonality (one month per meteorological season), one file per
-#      species per view, shared color scale within each view so vivax
-#      and falciparum are directly comparable.
-#   3. Mean-variance relationship / overdispersion (R2.1: empirical
-#      justification for Bell/NegBin over Poisson)
+# Sections: 1) case time series, 2) spatial trend/seasonality maps,
+# 3) mean-variance / overdispersion (R2.1), 4) chronic spatial hotspots.
 #
-# Figures saved to results/eda/. Uses the local shapefile
-# (data/spatial_data/sph_files/microrreg.shp).
+# Figures saved to results/eda/.
 #-------------------------------------------------------------------------
 
 library(dplyr)
@@ -63,9 +52,6 @@ rm(micro_reg_v, micro_reg_f)
 
 # ===========================================================================
 # SECTION 1: Case time series (total and by state)
-#
-# Rate per 100,000 inhabitants, matching the convention used everywhere
-# else in the pipeline (see README's "Modelling units and predictors").
 # ===========================================================================
 
 serie_total <- panel |>
@@ -121,17 +107,10 @@ ggsave(
 # ===========================================================================
 # SECTION 2: Spatial distribution of cases -- trend and seasonality
 #
-# One file per species per view: trend (5 snapshot years) and
-# seasonality (one representative month per meteorological season,
-# averaged across all years), each faceted 2 columns wide. Vivax and
-# falciparum share one color scale per view, fixed to that view's full
-# data range, so color is comparable across species.
-#
-# Population is averaged (not summed) across combined months, since
-# it's an annual figure interpolated flat within each year.
-# Seasonality's rate is the mean of each year's
-# monthly rate, not sum-then-divide, so it stays comparable to section
-# 1's time series scale.
+# One file per species per view, 2-column facets. Vivax and falciparum
+# share one color scale per view so they're directly comparable.
+# Seasonality's rate is the mean of each year's monthly rate, not
+# sum-then-divide, to stay comparable to section 1's scale.
 # ===========================================================================
 
 micro_sf <- st_read(
@@ -169,9 +148,7 @@ sazonalidade <- panel |>
 
 season_limits <- range(sazonalidade$taxa, na.rm = TRUE)
 
-# One representative month per meteorological season. The color
-# scale above still comes from all 12 months, so it isn't narrowed by
-# only plotting these four.
+# One representative month per meteorological season.
 SEASON_MONTHS <- c('Jan', 'Apr', 'Jul', 'Oct')
 
 sazonalidade_season <- sazonalidade |>
@@ -232,23 +209,13 @@ rm(p, sp, slug)
 # ===========================================================================
 # SECTION 3: Mean-variance relationship / overdispersion (R2.1)
 #
-# A microregion's raw case counts mix genuine extra-Poisson dispersion
-# with the two-decade trend (section 1) and seasonality (section 2), so
-# a naive per-microregion mean/variance would overstate the case for
-# Bell/NegBin. Each (microregion, year, month) cell has exactly one
-# observation, so a within-cell empirical variance isn't available
-# directly -- controlling for all three means fitting a mean model
-# instead:
-#
-#   numCasos ~ factor(codMicroRes) + factor(ano) + factor(mes) +
-#      offset(log(populacao))
-#
-# a plain Poisson GLM (not the paper's Bell/NegBin), fit on data
-# through 2020. Its fitted value is the Poisson-consistent expectation
-# once microregion/year/month are accounted for; the squared residual,
-# averaged by microregion, is the corresponding controlled variance.
-# Under a Poisson process, variance == mean (reference line) -- points
-# above it justify Bell/NegBin, whose variance isn't pinned to the mean.
+# A naive per-microregion mean/variance would conflate genuine
+# overdispersion with the trend and seasonality already shown above, so
+# controlling for microregion/year/month means fitting a mean model
+# first (plain Poisson GLM, through 2020) and comparing each
+# microregion's fitted mean to its squared-residual variance. Under a
+# Poisson process variance == mean (reference line); points above it
+# justify Bell/NegBin.
 # ===========================================================================
 
 fit_overdisp <- function(df) {
@@ -260,9 +227,6 @@ fit_overdisp <- function(df) {
     family = poisson,
     data = df
   )
-  # Pearson dispersion statistic: standard overdispersion test once the
-  # mean model is controlled for; phi >> 1 confirms what the plot shows
-  # visually.
   pearson_disp <- sum(residuals(fit, type = 'pearson')^2) / df.residual(fit)
 
   by_micro <- df |>
@@ -341,6 +305,112 @@ message(
 )
 print(resumo)
 
+
+# ===========================================================================
+# SECTION 4: Chronic spatial hotspots
+#
+# bym2's spatial smoothing borrows strength from neighboring
+# microregions -- good for noisy small areas, but it pulls a
+# genuinely, persistently extreme area toward its neighbors' lower
+# level (2.3.model_iteration.R found this shows up as systematic
+# underestimation for exactly these areas). This documents that a
+# small, recurring set of microregions accounts for a disproportionate
+# share of the most extreme rate cells across the whole 2003-2022
+# series, not just recent years.
+#
+# Ranked by how often each microregion lands in its own species' top
+# 1% of rate cells (a per-species threshold, since case magnitudes
+# differ a lot between vivax and falciparum) -- a frequency count, not
+# a single peak, so a one-off spike doesn't outrank a chronic hotspot.
+#
+# `fronteira` flags whether the microregion sits on an international
+# border (informed by known Legal Amazon geography, not a GIS
+# intersection check -- worth verifying computationally before this
+# becomes an actual covariate). It's a spatial correlate, not a
+# proposed mechanism: bordering a country doesn't mean cases are
+# imported from it (French Guiana has strong vector control and isn't
+# a plausible source), and several chronic hotspots (Tefé, Rio Preto
+# da Eva, Caracaraí, Furos de Breves) aren't border microregions at
+# all. The more likely common factor is that border regions in the
+# Amazon tend to be remote, under-governed, and drive small-scale
+# mining -- the same traits plenty of interior hotspots share -- so
+# `fronteira` is a rough proxy for that, not a claim about cross-
+# border transmission.
+# ===========================================================================
+
+BORDER_COUNTRY <- c(
+  'Cruzeiro do Sul' = 'Peru',
+  'Juruá' = 'Peru',
+  'Rio Negro' = 'Colombia/Venezuela',
+  'Oiapoque' = 'French Guiana'
+)
+
+annual <- panel |>
+  group_by(especie, codMicroRes, nomeMicroRes, siglaUF, ano) |>
+  summarise(
+    casos = sum(numCasos, na.rm = TRUE),
+    pop = mean(populacao, na.rm = TRUE),
+    .groups = 'drop'
+  ) |>
+  mutate(taxa_anual = casos / pop * 1e5)
+
+taxa_mediana <- annual |>
+  group_by(especie, codMicroRes, nomeMicroRes, siglaUF) |>
+  summarise(taxa_mediana_anual = median(taxa_anual), .groups = 'drop')
+
+freq_extremos <- panel |>
+  mutate(taxa = numCasos / populacao * 1e5) |>
+  group_by(especie) |>
+  mutate(p99 = quantile(taxa, .99, na.rm = TRUE)) |>
+  ungroup() |>
+  group_by(especie, codMicroRes, nomeMicroRes, siglaUF) |>
+  summarise(n_top1pct = sum(taxa >= p99), .groups = 'drop')
+
+hotspots <- freq_extremos |>
+  left_join(
+    taxa_mediana,
+    by = c('especie', 'codMicroRes', 'nomeMicroRes', 'siglaUF')
+  ) |>
+  mutate(fronteira = coalesce(BORDER_COUNTRY[nomeMicroRes], 'interior')) |>
+  arrange(especie, desc(n_top1pct))
+
+top_hotspots <- hotspots |>
+  group_by(especie) |>
+  slice_max(n_top1pct, n = 10) |>
+  ungroup()
+
+message(
+  'Chronic spatial hotspots -- top 10 per species by frequency in ',
+  'the top 1% of rate cells, 2003-2022:'
+)
+print(top_hotspots, n = Inf)
+
+top_hotspots |> write_csv('results/eda/hotspots_ranking.csv')
+
+for (sp in unique(panel$especie)) {
+  slug <- ifelse(sp == 'P. vivax', 'vivax', 'falciparum')
+
+  p <- micro_sf |>
+    inner_join(
+      hotspots |> filter(especie == sp),
+      by = c('code_micro' = 'codMicroRes')
+    ) |>
+    ggplot() +
+    geom_sf(aes(fill = n_top1pct), color = 'black', linewidth = .1) +
+    scale_fill_gradientn(
+      colours = RATE_GRADIENT,
+      name = 'Months in own\ntop 1% of rate'
+    ) +
+    MAP_THEME
+  ggsave(
+    sprintf('results/eda/map_%s_hotspots.png', slug),
+    p,
+    width = 7,
+    height = 8,
+    device = agg_png
+  )
+}
+
 rm(
   panel,
   micro_sf,
@@ -358,5 +428,13 @@ rm(
   resumo,
   serie_total,
   serie_estado,
+  BORDER_COUNTRY,
+  annual,
+  taxa_mediana,
+  freq_extremos,
+  hotspots,
+  top_hotspots,
+  sp,
+  slug,
   p
 )

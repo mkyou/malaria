@@ -1,55 +1,27 @@
 #-------------------------------------------------------------------------
 # 2.2.eda.R
 #
-# Covariate exploration. Does bringing in
-# deforestation/rainfall/temperature/humidity actually
-# carry signal? Reads 1.data_wrangling.R's microregion x month
-# panel. Restricted to ano <= 2020 throughout -- 2018-2020 is this
-# analysis's own test window (section 3), 2021-2022 is the untouched
-# final holdout.
+# Covariate exploration: does deforestation/precip/temp/humidity carry
+# signal? Reads 1.data_wrangling.R's panel, ano <= 2020 throughout.
 #
-# Two questions, kept deliberately separate rather than conflated into
-# one model:
-#   1. In-time: does a covariate explain case rate once microregion
-#      and time are controlled for, using its *same-period* value?
-#      Answers "is there a real relationship here at all."
-#   2. Realistic-lag / predictive: same question, using only covariate
-#      values that would actually have been published in time for a
-#      forecast -- ERA5 lag 1 month (its monthly mean has ~1 month
-#      structural lag to compute, well inside Copernicus's documented
-#      5-day-to-3-month latency), deforestation lag 2 years (PRODES's
-#      consolidated-data lag is 6-18 months after the PRODES-year
-#      ends, so lag 2y has comfortable margin; lag 1y would be
-#      underwater for early-year predictions). Answers "could this
-#      actually work as a predictor," not just "is it correlated."
+# Two separate questions:
+#   1. In-time: does a covariate explain case rate using its
+#      same-period value, once microregion/time are controlled for?
+#   2. Realistic-lag: same question, using only covariate values that
+#      would actually be available at prediction time (ERA5 lag 1
+#      month, deforestation lag 2 years -- see 0.download_data.R).
 #
-# Sections:
-#   1. Covariate vs. case rate: temporal and spatial correlation, plus
-#      (1b) a trend/seasonal/remainder decomposition of the temporal
-#      story, since raw correlation conflates the three
-#   2. In-time explanatory power (GLM)
-#   3. Realistic-lag predictive power (GLM, train < 2018 / test 2018-2020)
+# Sections: 1) correlation (temporal + spatial), 1b) trend/seasonal/
+# remainder decomposition, 2) in-time GLM, 3) realistic-lag predictive
+# GLM (train < 2018 / test 2018-2020).
 #
-# Sections 2-3 share one mean structure, mirroring the paper's actual
-# Bell spatio-temporal model rather than something EDA-only and
-# disposable: microregion as a fixed effect (stand-in for
-# f(idArea, model='bym2')), a natural spline in ano (stand-in for the
-# smooth f(ano, model='rw1') year trend), and factor(mes) (calendar-
-# month seasonality, stand-in for the cyclic f(mes, model='rw2')). Not
-# factor(idMes)/factor(ano): section 3 predicts into test years the
-# fit never saw, and dummy variables can't extrapolate to a level they
-# were never fit on -- a natural spline can (linear beyond the
-# boundary knots by construction). This is a plain Poisson GLM
-# standing in for a diagnostic question ("is there something here"),
-# not a preview of the real INLA fit -- there's no GLM equivalent of
-# BYM2's spatial smoothing or the random-walk priors.
+# Sections 2-3 share a mean structure that mirrors the paper's Bell
+# model: microregion fixed effect (stand-in for bym2), natural spline
+# in ano (stand-in for rw1 trend, and able to extrapolate into unseen
+# test years unlike factor(ano)), factor(mes) seasonality.
 #
-# Figures saved to results/eda/, same conventions as 2.1.eda.R: no
-# baked-in titles (captions go in LaTeX), species double-encoded by
-# shape/linetype *and* color (grayscale-safe, still reads well in
-# color), Liberation Sans via ragg, theme_bw()-based. Choropleths here
-# use a diverging scale (correlation runs -1 to 1), unlike 2.1's
-# sequential rate scale.
+# Figures saved to results/eda/, same conventions as 2.1.eda.R.
+# Choropleths here use a diverging scale (correlation runs -1 to 1).
 #-------------------------------------------------------------------------
 
 library(dplyr)
@@ -102,21 +74,10 @@ COVARIATE_LABELS <- c(
 # ===========================================================================
 # SECTION 1: Covariate vs. case rate -- temporal and spatial correlation
 #
-# Temporal: region-wide monthly series, case rate (both species) and
-# each covariate, z-scored so wildly different units (km2, mm, Kelvin,
-# %) can share one panel and co-movement is visually readable.
-#
-# Spatial: per-microregion Pearson correlation between the covariate
-# and case counts across that microregion's own time series (2003-2020),
-# mapped -- shows where the relationship is strong/weak/reversed,
-# which an aggregate correlation number can't. Deforestation is state-,
-# not microregion-grain, so its map shows blocks of same-state
-# microregions sharing one value, not genuine within-state texture.
-#
-# Purely descriptive: no controls for microregion/time here (that's
-# what sections 2-3's GLMs are for). This is "do these move together
-# at all," not "does the relationship survive controlling for
-# confounders."
+# Temporal: region-wide monthly series, z-scored so different units
+# (km2, mm, Kelvin, %) can share one panel. Spatial: per-microregion
+# Pearson correlation, mapped. Purely descriptive, no controls -- that's
+# sections 2-3's job.
 # ===========================================================================
 
 serie_taxas <- panel |>
@@ -239,10 +200,9 @@ for (sp in unique(panel$especie)) {
   )
 }
 
-# Same-year deforestation (defor_km2) could never actually be used as
-# a predictor (PRODES publishes with a lag), so this isn't "which one
-# to use" -- it's "how much signal is given up by using the lag that's
-# actually available."
+# Same-year deforestation could never actually be used as a predictor
+# (PRODES publishes with a lag) -- this is how much signal is given up
+# by using the lag that's actually available.
 corr_defor_comparacao <- panel |>
   group_by(especie, codMicroRes) |>
   summarise(
@@ -298,26 +258,16 @@ print(resumo_defor_lag)
 # ===========================================================================
 # SECTION 1b: Trend/seasonal/remainder decomposition
 #
-# Raw correlation (above) conflates three different sources of
-# covariation: shared long-run trend, shared within-year seasonality,
-# and genuine short-term (month-to-month) covariation. Classical
-# additive decomposition (stats::decompose(), frequency=12) separates
-# them, per microregion (its own 216-month series), summarized by the
-# median across microregions -- an aggregate-level decomposition would
-# hide microregion-level heterogeneity the same way an aggregate
-# correlation number would.
+# Raw correlation conflates shared trend, shared seasonality, and
+# genuine short-term covariation. stats::decompose() (additive,
+# frequency=12) separates them, per microregion, summarized by the
+# median -- an aggregate decomposition would hide microregion-level
+# heterogeneity the same way an aggregate correlation would.
 #
-# defor_lag2's "seasonal" component is a decomposition ARTIFACT, not
-# real signal: PRODES data is annual, so defor_lag2 is a step function
-# (constant for 12 months, then jumps every January) rather than a
-# smoothly-varying series. decompose()'s moving-average trend doesn't
-# track a step perfectly, and the leftover systematic residual near
-# each January boundary gets misread as "seasonality" purely because
-# it recurs at the same calendar position every year -- confirmed by
-# its seasonal variance being far larger than the other three
-# covariates', despite deforestation being the one series that
-# structurally cannot have real within-year seasonality. Excluded from
-# the summary below for that reason.
+# defor_lag2's "seasonal" component is a decomposition artifact, not
+# real signal: PRODES is annual (a step function, not smooth), and
+# decompose()'s moving-average trend misreads the step's residual as
+# seasonality. Excluded from the summary below for that reason.
 # ===========================================================================
 
 to_decomp <- function(x) {
@@ -396,12 +346,9 @@ print(decomp_summary)
 decomp_summary |>
   write_csv('results/eda/covariates_decomposition_correlation.csv')
 
-# Illustration: relative humidity (the covariate with the sharpest gap
-# between raw and seasonal correlation) decomposed alongside both
-# species' case rates, so "trend/seasonal/remainder" has a concrete
-# picture to point to. Region-wide aggregate series, since one clean
-# picture teaches the concept better than 107 -- the median table
-# above is the evidence, this is illustration.
+# Illustration only (the median table above is the evidence): relative
+# humidity, region-wide aggregate, decomposed alongside both species'
+# case rates.
 taxas_wide <- panel |>
   group_by(especie, data) |>
   summarise(
@@ -502,16 +449,10 @@ rm(
 # ===========================================================================
 # SECTION 2: In-time explanatory power (GLM)
 #
-# Does each covariate explain case counts, using its *same-period*
-# value, once microregion and time are controlled for (mean structure
-# in the file header)? Fit on all of ano <= 2020 -- no train/test
-# split here, that's section 3, which specifically needs an
-# out-of-sample test. Covariates are z-scored before fitting so rate
-# ratios mean "effect of a one-SD change" for all four, comparable
-# despite being on wildly different scales (km2, mm, Kelvin, %).
-# Reports each covariate's rate ratio (95% CI) and the deviance
-# explained versus the same fixed-effect structure without covariates
-# (likelihood-ratio test).
+# Same-period covariate value, fit on all of ano <= 2020 (no split --
+# that's section 3). Z-scored so rate ratios mean "effect of a 1-SD
+# change," comparable across covariates. Reports rate ratios (95% CI)
+# and deviance explained vs. the same structure without covariates.
 # ===========================================================================
 
 library(splines)
@@ -584,22 +525,12 @@ rm(panel_z, fit_intime, fits_intime, rate_ratios, lrt_resultados)
 # ===========================================================================
 # SECTION 3: Realistic-lag predictive power (GLM, train/test)
 #
-# Same mean structure as section 2, but covariates re-lagged to values
-# that would actually have been available at prediction time: ERA5
-# (precip/temp/rhum) lag 1 month; deforestation stays lag 2 years
-# (already realistic, see file header). Trained on ano < 2018,
-# evaluated out-of-sample on 2018-2020 -- 2021-2022 stays untouched.
-# This is the test that actually answers "could this work as a
-# predictor," not just "is it correlated" (section 2) or "is it
-# correlated at all, anywhere" (section 1).
-#
-# Scored with scripts/loss_functions.R -- the same mbe/nrmse/rae/
-# rmsle/rse/cor the paper's own models report
-# (results/test_metrics_microrregion_{vivax,falciparum}.csv), on the
-# same rate scale (cases per 100k, not raw counts), so these numbers
-# are actually readable against something. That test window is not
-# necessarily 2018-2020 though, so treat this as a rough "where does
-# this stand" read, not a strict head-to-head.
+# Same structure as section 2, covariates re-lagged to values actually
+# available at prediction time (ERA5 lag 1 month). Trained on ano < 2018,
+# tested on 2018-2020. Scored with scripts/loss_functions.R, same rate
+# scale as the paper's own reported metrics -- rough reference, not a
+# strict head-to-head (the paper's test window isn't necessarily
+# 2018-2020).
 # ===========================================================================
 
 source('scripts/loss_functions.R')

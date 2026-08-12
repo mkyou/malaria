@@ -1,0 +1,24 @@
+especie,codMicroRes,nomeMicroRes,siglaUF,n_top1pct,taxa_mediana_anual,fronteira
+P. falciparum,16001,Oiapoque,AP,79,4015.2697920147048,French Guiana
+P. falciparum,12001,Cruzeiro do Sul,AC,62,3759.4285535418276,Peru
+P. falciparum,11003,Ariquemes,RO,26,104.61531502237078,interior
+P. falciparum,13001,Rio Negro,AM,23,2678.156819661165,Colombia/Venezuela
+P. falciparum,13008,Rio Preto da Eva,AM,20,26.125257487792382,interior
+P. falciparum,11001,Porto Velho,RO,11,175.19230969388278,interior
+P. falciparum,14002,Nordeste de Roraima,RR,7,255.7844467360594,interior
+P. falciparum,15005,Furos de Breves,PA,7,825.8202032723576,interior
+P. falciparum,13005,Tefé,AM,6,693.0635483925471,interior
+P. falciparum,13006,Coari,AM,4,116.9280839994176,interior
+P. falciparum,14003,Caracaraí,RR,4,535.4881289593283,interior
+P. falciparum,16002,Amapá,AP,4,120.21943106350695,interior
+P. vivax,12001,Cruzeiro do Sul,AC,78,16294.141737880987,Peru
+P. vivax,16001,Oiapoque,AP,51,10715.433745630817,French Guiana
+P. vivax,13001,Rio Negro,AM,28,12349.060161039011,Colombia/Venezuela
+P. vivax,13008,Rio Preto da Eva,AM,25,4027.7095288864757,interior
+P. vivax,15005,Furos de Breves,PA,13,5066.559714409977,interior
+P. vivax,13004,Juruá,AM,9,4423.587230623671,Peru
+P. vivax,13005,Tefé,AM,9,5652.895612392428,interior
+P. vivax,13013,Madeira,AM,8,2460.558867052754,interior
+P. vivax,14002,Nordeste de Roraima,RR,8,5854.467681565609,interior
+P. vivax,14003,Caracaraí,RR,8,6328.533558059304,interior
+P. vivax,14004,Sudeste de Roraima,RR,8,5745.876781650288,interior
