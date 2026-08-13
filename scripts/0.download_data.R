@@ -16,12 +16,7 @@
 #   4. Deforestation                (PRODES/TerraBrasilis, state x year)
 #   5. Precipitation                (ERA5 / Copernicus CDS)
 #   6. Temperature & relative humidity (ERA5 / Copernicus CDS)
-#
-# See README.md's "Data" section for the source table, caveats (PRODES
-# is primary-sourced 2008-2022 but secondary/estimated 2003-2007; the
-# microregion geometry recovery in section 3 exists because write_csv()
-# mangled the original geom column), and requirements (a Copernicus CDS
-# API key in ~/.cdsapirc for sections 5-6).
+#   7. Health facilities            (CNES / DATASUS, municipality x year)
 #-------------------------------------------------------------------------
 
 library(dplyr)
@@ -340,7 +335,7 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     group_by(codMunRes6 = Municipality, id_mes, tipo) |>
     summarise(numCasos = sum(Notifications), .groups = 'drop')
 
-  # Municipality universe comes from populacao_df.csv (canonical after the migration)
+  # Municipality universe comes from populacao_df.csv
   muni_universe <- populacao_df |>
     distinct(codMunRes6, codMunRes)
 
@@ -781,8 +776,6 @@ if (file.exists(PRECIP_OUT)) {
 # ===========================================================================
 # SECTION 6: Temperature & relative humidity (ERA5 / Copernicus CDS)
 #
-# Replaces the legacy rhum_df.csv/temp_df.csv (municipality-grain,
-# undocumented source -- no script in the repo ever produced them).
 # Rebuilt here at microregion grain, same method as section 5: one CDS
 # request for the whole time range/bbox, extracted at the centroids.
 #
@@ -900,4 +893,169 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
   ))
 
   rm(cdsapirc, cds_key, r, cent, pts, extract_var, meteo, temp_df, rhum_df)
+}
+
+
+# ===========================================================================
+# SECTION 7: Health facilities (CNES, DATASUS)
+#
+# One December snapshot per year per state (the ST/Estabelecimentos
+# table), not every month -- facility counts move slowly, matching the
+# annual cadence of deforestation. Real microregion grain: each
+# establishment carries its own municipality code (CODUFMUN), joined
+# to microregion via the same municipios_codigos.csv crosswalk used
+# elsewhere, then summed -- not limited to state grain like
+# deforestation.
+#
+# The archive's historical files start 2005-08, so 2003-2004 have no
+# source here at all (left absent, unlike deforestation's 2001-2002
+# backfill -- there's no earlier secondary source to fall back to).
+#
+# The host resolves over HTTP(S) too, but only actually serves files
+# over the FTP protocol -- an https://ftp.datasus.gov.br/... URL
+# connects and hangs, it isn't a dead host or a redirect.
+#
+# TP_UNID (facility type) has no field documentation that parses
+# reliably, so codes are identified empirically here, from real
+# facility names sampled via apidadosabertos.saude.gov.br's REST API
+# (which exposes nome_fantasia + codigo_tipo_unidade together -- the
+# ST table itself has no name field). Kept as raw counts per code,
+# unfiltered: which ones matter is a question for the EDA/model
+# iteration scripts, not this one. Some identified while building
+# this: 01/02 posto de saude/UBS, 05/07 hospital, 22 consultorio
+# isolado (private), 32 unidade fluvel/movel de saude (riverine), 40
+# unidade movel terrestre, 50 vigilancia em saude (includes
+# entomological surveillance), 72 saude indigena (CASAI etc).
+# ===========================================================================
+
+CNES_OUT <- 'data/support_data/cnes_df.csv'
+
+if (file.exists(CNES_OUT)) {
+  message(sprintf('[skip] section 7: %s already exists', CNES_OUT))
+} else {
+  library(read.dbc)
+
+  CNES_YEAR_START <- 2005
+  CNES_FTP_BASE <- paste0(
+    'ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/ST'
+  )
+
+  fetch_cnes_file <- function(uf, ano, max_retries = 4) {
+    dest <- tempfile(fileext = '.dbc')
+    url <- sprintf('%s/ST%s%s12.dbc', CNES_FTP_BASE, uf, substr(ano, 3, 4))
+    for (attempt in seq_len(max_retries)) {
+      ok <- tryCatch(
+        {
+          utils::download.file(url, dest, mode = 'wb', quiet = TRUE)
+          TRUE
+        },
+        error = function(e) FALSE
+      )
+      if (ok && file.exists(dest) && file.info(dest)$size > 0) {
+        d <- tryCatch(read.dbc::read.dbc(dest), error = function(e) NULL)
+        unlink(dest)
+        if (!is.null(d)) {
+          return(d)
+        }
+      }
+      Sys.sleep(3)
+    }
+    NULL
+  }
+
+  cnes_years <- CNES_YEAR_START:YEAR_END
+  message(sprintf(
+    '[fetch] CNES ST (estabelecimentos), December snapshot,
+    %d states x %d years',
+    length(LEGAL_AMAZON_STATES),
+    length(cnes_years)
+  ))
+  cnes_raw <- list()
+  for (uf in LEGAL_AMAZON_STATES) {
+    for (ano in cnes_years) {
+      message(sprintf('  - %s %d', uf, ano))
+      d <- fetch_cnes_file(uf, ano)
+      if (is.null(d)) {
+        warning(sprintf(
+          '[warn] CNES fetch failed for %s %d after retries',
+          uf,
+          ano
+        ))
+        next
+      }
+      cnes_raw[[paste(uf, ano)]] <- d |>
+        transmute(
+          cod_mun = as.numeric(as.character(CODUFMUN)),
+          ano = ano,
+          tp_unid = as.character(TP_UNID),
+          vinc_sus = as.numeric(as.character(VINC_SUS)),
+          atendamb = as.numeric(as.character(ATENDAMB)),
+          atendhos = as.numeric(as.character(ATENDHOS)),
+          urgemerg = as.numeric(as.character(URGEMERG))
+        )
+    }
+  }
+
+  cnes_muni <- bind_rows(cnes_raw)
+
+  cities_df <- read_csv(
+    'data/support_data/municipios_codigos.csv',
+    trim_ws = TRUE,
+    show_col_types = FALSE
+  ) |>
+    transmute(
+      cod_mun6 = as.numeric(substr(as.character(cod_mun), 1, 6)),
+      cod_micro_reg
+    )
+
+  cnes_muni <- cnes_muni |>
+    left_join(cities_df, by = c('cod_mun' = 'cod_mun6'))
+
+  stopifnot(
+    'CNES municipality codes with no microregion match' = sum(
+      is.na(cnes_muni$cod_micro_reg)
+    ) ==
+      0
+  )
+
+  by_type <- cnes_muni |>
+    count(cod_micro_reg, ano, tp_unid) |>
+    mutate(tp_unid = paste0('n_tp_', tp_unid)) |>
+    pivot_wider(names_from = tp_unid, values_from = n, values_fill = 0)
+
+  by_flag <- cnes_muni |>
+    group_by(cod_micro_reg, ano) |>
+    summarise(
+      n_estabelecimentos = n(),
+      n_vinc_sus = sum(vinc_sus, na.rm = TRUE),
+      n_atendamb = sum(atendamb, na.rm = TRUE),
+      n_atendhos = sum(atendhos, na.rm = TRUE),
+      n_urgemerg = sum(urgemerg, na.rm = TRUE),
+      .groups = 'drop'
+    )
+
+  cnes_df <- by_flag |> left_join(by_type, by = c('cod_micro_reg', 'ano'))
+
+  write_csv(cnes_df, CNES_OUT)
+  message(sprintf(
+    '[done] cnes_df.csv: %d rows (%d microregions x %d years, %d-%d),
+    %d state-year fetches missing',
+    nrow(cnes_df),
+    length(unique(cnes_df$cod_micro_reg)),
+    length(unique(cnes_df$ano)),
+    CNES_YEAR_START,
+    YEAR_END,
+    length(cnes_years) * length(LEGAL_AMAZON_STATES) - length(cnes_raw)
+  ))
+
+  rm(
+    fetch_cnes_file,
+    cnes_years,
+    cnes_raw,
+    cnes_muni,
+    cities_df,
+    by_type,
+    by_flag,
+    cnes_df
+  )
 }
