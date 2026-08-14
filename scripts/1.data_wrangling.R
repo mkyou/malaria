@@ -3,9 +3,7 @@
 #
 # Turns the raw, country-wide data from 0.download_data.R into the
 # microregion-grain panel the models in scripts/3.microrregion_models/
-# actually read. Not idempotent like 0.download_data.R -- this is pure
-# in-memory transformation of already-downloaded data, no slow/flaky
-# external calls to protect against, so it always runs start to finish.
+# actually read. Not idempotent like 0.download_data.R.
 #
 # Sections:
 #   1. Malaria panel        (municipality -> microregion, Legal Amazon filter)
@@ -160,15 +158,46 @@ rm(uf_lookup, expected_codes, micro_sf)
 
 
 # ===========================================================================
-# SECTION 3: Covariates (deforestation, precipitation, temperature, humidity)
+# SECTION 3: Covariates (deforestation, precipitation, temperature,
+# humidity, health facilities, chronic hotspot intensity)
 #
-# See 0.download_data.R sections 4-6. All built directly at microregion
-# (precip, temp, rhum) or state (deforestation) grain, so they join in
-# here rather than at the municipality level above. Deforestation
-# joins by (state, ano) -- state, not national, since section 4
-# fetches a per-state breakdown. Population is already included above,
-# via the sum() in the microregion aggregation.
+# See 0.download_data.R sections 4-7. Deforestation joins by (state,
+# ano) -- state, not microregion, since section 4 fetches a per-state
+# breakdown. precip/temp/rhum join by (microregion, ano, mes), already
+# monthly. CNES joins by (microregion, ano) only -- it's an annual
+# (December) snapshot, so the same year's value is shared across all
+# 12 months; 2003-2004 have no CNES source at all, left NA. Population
+# is already included above, via the sum() in the microregion
+# aggregation.
+#
+# `hotspots`: test-only feature (2.1.eda.R section 4's static, whole-
+# period ranking is the EDA evidence; this is its time-varying form).
+# For microregion x ano, the count of months in the 3 years BEFORE ano
+# (not including ano itself) that microregion was at or above its
+# species' own top-1% rate threshold. Threshold is fixed, computed
+# once from that species' full 2003-2022 history -- a scale reference,
+# not a per-fold-sensitive statistic. No backfill for years without 3
+# full prior years (ano 2003-2005): left NA, same as any other
+# genuinely-missing lag.
 # ===========================================================================
+
+compute_hotspots <- function(df) {
+  p99 <- quantile(df$numCasos / df$populacao * 1e5, .99, na.rm = TRUE)
+  df |>
+    mutate(taxa = numCasos / populacao * 1e5) |>
+    group_by(codMicroRes, ano) |>
+    summarise(n_p99_ano = sum(taxa >= p99), .groups = 'drop') |>
+    arrange(codMicroRes, ano) |>
+    group_by(codMicroRes) |>
+    mutate(
+      hotspots = lag(n_p99_ano, 1) + lag(n_p99_ano, 2) + lag(n_p99_ano, 3)
+    ) |>
+    ungroup() |>
+    select(codMicroRes, ano, hotspots)
+}
+
+hotspots_v <- compute_hotspots(micro_reg_v)
+hotspots_f <- compute_hotspots(micro_reg_f)
 
 deforestation_df <- read_csv('data/support_data/deforestation_df.csv') |>
   select(siglaUF = state, ano, defor_km2 = km2, defor_lag2 = km2_lag2)
@@ -176,6 +205,8 @@ deforestation_df <- read_csv('data/support_data/deforestation_df.csv') |>
 precip_df <- read_csv('data/support_data/precip_df.csv')
 temp_df <- read_csv('data/support_data/temp_df.csv')
 rhum_df <- read_csv('data/support_data/rhum_df.csv')
+cnes_df <- read_csv('data/support_data/cnes_df.csv') |>
+  rename(codMicroRes = cod_micro_reg)
 
 idArea_lookup <- micro_lookup |> select(code_micro, idArea)
 
@@ -184,6 +215,8 @@ micro_reg_v <- micro_reg_v |>
   left_join(precip_df, by = c('codMicroRes', 'ano', 'mes')) |>
   left_join(temp_df, by = c('codMicroRes', 'ano', 'mes')) |>
   left_join(rhum_df, by = c('codMicroRes', 'ano', 'mes')) |>
+  left_join(cnes_df, by = c('codMicroRes', 'ano')) |>
+  left_join(hotspots_v, by = c('codMicroRes', 'ano')) |>
   left_join(idArea_lookup, by = c('codMicroRes' = 'code_micro')) |>
   mutate(Y = ifelse(ano >= 2016, NA, numCasos))
 
@@ -192,6 +225,8 @@ micro_reg_f <- micro_reg_f |>
   left_join(precip_df, by = c('codMicroRes', 'ano', 'mes')) |>
   left_join(temp_df, by = c('codMicroRes', 'ano', 'mes')) |>
   left_join(rhum_df, by = c('codMicroRes', 'ano', 'mes')) |>
+  left_join(cnes_df, by = c('codMicroRes', 'ano')) |>
+  left_join(hotspots_f, by = c('codMicroRes', 'ano')) |>
   left_join(idArea_lookup, by = c('codMicroRes' = 'code_micro')) |>
   mutate(Y = ifelse(ano >= 2016, NA, numCasos))
 
@@ -207,5 +242,6 @@ dir.create('data/output_data', recursive = TRUE, showWarnings = FALSE)
 micro_reg_v |> write_csv('data/output_data/micro_reg_v_df.csv')
 micro_reg_f |> write_csv('data/output_data/micro_reg_f_df.csv')
 
-rm(deforestation_df, precip_df, temp_df, rhum_df, micro_lookup,
-   idArea_lookup, micro_reg_v, micro_reg_f)
+rm(compute_hotspots, hotspots_v, hotspots_f, deforestation_df, precip_df,
+   temp_df, rhum_df, cnes_df, micro_lookup, idArea_lookup, micro_reg_v,
+   micro_reg_f)

@@ -13,34 +13,26 @@
 #
 # Sections: 1) correlation (temporal + spatial), 1b) trend/seasonal/
 # remainder decomposition, 2) in-time GLM, 3) realistic-lag predictive
-# GLM (train < 2018 / test 2018-2020).
+# GLM (train < 2018 / test 2018-2020). Correlations and decompositions
+# use rate (cases per 100k), not raw counts -- microregions vary too
+# much in population for a raw-count correlation to mean anything
+# comparable across them. CNES (health facilities) EDA lives in
+# 2.1.eda.R, not here -- it grew out of that script's chronic-hotspot
+# question, not this one's covariate-signal question.
 #
 # Sections 2-3 share a mean structure that mirrors the paper's Bell
 # model: microregion fixed effect (stand-in for bym2), natural spline
 # in ano (stand-in for rw1 trend, and able to extrapolate into unseen
 # test years unlike factor(ano)), factor(mes) seasonality.
 #
-# Figures saved to results/eda/, same conventions as 2.1.eda.R.
-# Choropleths here use a diverging scale (correlation runs -1 to 1).
+# No figures here -- tables only (results/eda/*.csv). The figures this
+# file used to produce were cut; 2.1.eda.R still has the spatial/
+# trend/seasonality/hotspot ones.
 #-------------------------------------------------------------------------
 
 library(dplyr)
 library(readr)
 library(tidyr)
-library(ggplot2)
-library(sf)
-library(ragg)
-
-LEGAL_AMAZON_STATES <- c('AC', 'AM', 'AP', 'MA', 'MT', 'PA', 'RO', 'RR', 'TO')
-
-ESPECIE_LINETYPES <- c('P. vivax' = 'solid', 'P. falciparum' = 'dashed')
-ESPECIE_SHAPES <- c('P. vivax' = 1, 'P. falciparum' = 4)
-ESPECIE_COLORS <- c('P. vivax' = '#0072B2', 'P. falciparum' = '#D55E00')
-CORR_GRADIENT <- c('#2166ac', '#f7f7f7', '#b2182b')
-BASE_THEME <- theme_bw(base_size = 13) +
-  theme(text = element_text(family = 'Liberation Sans'))
-MAP_THEME <- BASE_THEME +
-  theme(axis.text = element_blank(), axis.ticks = element_blank())
 
 dir.create('results/eda', recursive = TRUE, showWarnings = FALSE)
 
@@ -57,187 +49,40 @@ micro_reg_f <- read_csv(
   mutate(especie = 'P. falciparum')
 
 panel <- bind_rows(micro_reg_v, micro_reg_f) |>
-  mutate(data = as.Date(sprintf('%d-%02d-01', ano, mes))) |>
+  mutate(
+    data = as.Date(sprintf('%d-%02d-01', ano, mes)),
+    taxa = numCasos / populacao * 1e5
+  ) |>
   filter(ano <= 2020)
 
 rm(micro_reg_v, micro_reg_f)
 
 COVARIATES <- c('defor_lag2', 'precip_mm', 'temp', 'rhum')
-COVARIATE_LABELS <- c(
-  defor_lag2 = 'Deforestation (lag 2y)',
-  precip_mm = 'Precipitation',
-  temp = 'Temperature',
-  rhum = 'Relative humidity'
-)
 
 
 # ===========================================================================
-# SECTION 1: Covariate vs. case rate -- temporal and spatial correlation
+# SECTION 1: Covariate vs. case rate -- deforestation lag comparison
 #
-# Temporal: region-wide monthly series, z-scored so different units
-# (km2, mm, Kelvin, %) can share one panel. Spatial: per-microregion
-# Pearson correlation, mapped. Purely descriptive, no controls -- that's
-# sections 2-3's job.
-# ===========================================================================
-
-serie_taxas <- panel |>
-  group_by(especie, data) |>
-  summarise(
-    numCasos = sum(numCasos, na.rm = TRUE),
-    populacao = sum(populacao, na.rm = TRUE),
-    .groups = 'drop'
-  ) |>
-  mutate(taxa = numCasos / populacao * 1e5) |>
-  group_by(especie) |>
-  mutate(valor_z = as.numeric(scale(taxa))) |>
-  ungroup() |>
-  transmute(data, serie = especie, valor_z)
-
-serie_covar_regional <- panel |>
-  distinct(codMicroRes, data, defor_lag2, precip_mm, temp, rhum) |>
-  group_by(data) |>
-  summarise(
-    across(all_of(COVARIATES), ~ mean(.x, na.rm = TRUE)),
-    .groups = 'drop'
-  ) |>
-  pivot_longer(
-    all_of(COVARIATES),
-    names_to = 'covariavel',
-    values_to = 'valor'
-  ) |>
-  group_by(covariavel) |>
-  mutate(valor_z = as.numeric(scale(valor))) |>
-  ungroup() |>
-  transmute(data, covariavel, serie = 'Covariate', valor_z)
-
-serie_combined <- bind_rows(lapply(COVARIATES, function(cv) {
-  bind_rows(
-    serie_taxas |> mutate(covariavel = cv),
-    serie_covar_regional |> filter(covariavel == cv)
-  )
-})) |>
-  mutate(
-    covariavel = factor(COVARIATE_LABELS[covariavel], levels = COVARIATE_LABELS)
-  )
-
-SERIE_LINETYPES <- c(ESPECIE_LINETYPES, 'Covariate' = 'dotted')
-SERIE_COLORS <- c(ESPECIE_COLORS, 'Covariate' = 'black')
-
-p <- serie_combined |>
-  ggplot(aes(x = data, y = valor_z, linetype = serie, color = serie)) +
-  geom_line() +
-  scale_linetype_manual(values = SERIE_LINETYPES, name = NULL) +
-  scale_color_manual(values = SERIE_COLORS, name = NULL) +
-  facet_wrap(~covariavel, ncol = 2) +
-  labs(x = NULL, y = 'Standardized value (z-score)') +
-  BASE_THEME
-ggsave(
-  'results/eda/covariates_series.png',
-  p,
-  width = 12,
-  height = 8,
-  device = agg_png
-)
-
-micro_sf <- st_read(
-  'data/spatial_data/sph_files/microrreg.shp',
-  quiet = TRUE
-) |>
-  mutate(code_micro = as.numeric(CD_MICRO)) |>
-  filter(SIGLA_UF %in% LEGAL_AMAZON_STATES) |>
-  select(code_micro)
-
-corr_espacial <- panel |>
-  group_by(especie, codMicroRes) |>
-  summarise(
-    across(
-      all_of(COVARIATES),
-      ~ suppressWarnings(cor(numCasos, .x, use = 'complete.obs')),
-      .names = 'cor_{.col}'
-    ),
-    .groups = 'drop'
-  ) |>
-  pivot_longer(
-    starts_with('cor_'),
-    names_prefix = 'cor_',
-    names_to = 'covariavel',
-    values_to = 'correlacao'
-  )
-
-for (sp in unique(panel$especie)) {
-  slug <- ifelse(sp == 'P. vivax', 'vivax', 'falciparum')
-
-  p <- micro_sf |>
-    inner_join(
-      corr_espacial |>
-        filter(especie == sp),
-      by = c('code_micro' = 'codMicroRes')
-    ) |>
-    mutate(
-      covariavel = factor(
-        COVARIATE_LABELS[covariavel],
-        levels = COVARIATE_LABELS
-      )
-    ) |>
-    ggplot() +
-    geom_sf(aes(fill = correlacao), color = 'black', linewidth = .1) +
-    scale_fill_gradient2(
-      low = CORR_GRADIENT[1],
-      mid = CORR_GRADIENT[2],
-      high = CORR_GRADIENT[3],
-      midpoint = 0,
-      limits = c(-1, 1),
-      name = 'Correlation'
-    ) +
-    facet_wrap(~covariavel, ncol = 2) +
-    MAP_THEME
-  ggsave(
-    sprintf('results/eda/map_%s_covariate_correlation.png', slug),
-    p,
-    width = 9,
-    height = 8,
-    device = agg_png
-  )
-}
-
 # Same-year deforestation could never actually be used as a predictor
 # (PRODES publishes with a lag) -- this is how much signal is given up
 # by using the lag that's actually available.
+# ===========================================================================
+
 corr_defor_comparacao <- panel |>
   group_by(especie, codMicroRes) |>
   summarise(
     cor_atual = suppressWarnings(cor(
-      numCasos,
+      taxa,
       defor_km2,
       use = 'complete.obs'
     )),
     cor_lag2 = suppressWarnings(cor(
-      numCasos,
+      taxa,
       defor_lag2,
       use = 'complete.obs'
     )),
     .groups = 'drop'
   )
-
-p <- corr_defor_comparacao |>
-  ggplot(aes(x = cor_atual, y = cor_lag2, shape = especie, color = especie)) +
-  geom_abline(slope = 1, intercept = 0, linetype = 'dashed', color = 'grey50') +
-  geom_point(alpha = .6) +
-  scale_shape_manual(values = ESPECIE_SHAPES, name = NULL) +
-  scale_color_manual(values = ESPECIE_COLORS, name = NULL) +
-  coord_equal(xlim = c(-1, 1), ylim = c(-1, 1)) +
-  labs(
-    x = 'Correlation with same-year deforestation',
-    y = 'Correlation with 2-year-lagged deforestation'
-  ) +
-  BASE_THEME
-ggsave(
-  'results/eda/deforestation_lag_comparison.png',
-  p,
-  width = 7,
-  height = 7,
-  device = agg_png
-)
 
 resumo_defor_lag <- corr_defor_comparacao |>
   group_by(especie) |>
@@ -280,11 +125,11 @@ to_decomp <- function(x) {
 decomp_vars <- c('P. vivax', 'P. falciparum', COVARIATES)
 
 micro_wide <- panel |>
-  select(codMicroRes, especie, data, numCasos, all_of(COVARIATES)) |>
+  select(codMicroRes, especie, data, taxa, all_of(COVARIATES)) |>
   pivot_wider(
     id_cols = c(codMicroRes, data, all_of(COVARIATES)),
     names_from = especie,
-    values_from = numCasos
+    values_from = taxa
   ) |>
   arrange(codMicroRes, data)
 
@@ -346,103 +191,15 @@ print(decomp_summary)
 decomp_summary |>
   write_csv('results/eda/covariates_decomposition_correlation.csv')
 
-# Illustration only (the median table above is the evidence): relative
-# humidity, region-wide aggregate, decomposed alongside both species'
-# case rates.
-taxas_wide <- panel |>
-  group_by(especie, data) |>
-  summarise(
-    numCasos = sum(numCasos, na.rm = TRUE),
-    populacao = sum(populacao, na.rm = TRUE),
-    .groups = 'drop'
-  ) |>
-  mutate(taxa = numCasos / populacao * 1e5) |>
-  select(data, especie, taxa) |>
-  pivot_wider(names_from = especie, values_from = taxa)
-
-covar_regional_wide <- panel |>
-  distinct(codMicroRes, data, defor_lag2, precip_mm, temp, rhum) |>
-  group_by(data) |>
-  summarise(
-    across(all_of(COVARIATES), ~ mean(.x, na.rm = TRUE)),
-    .groups = 'drop'
-  )
-
-full_series <- taxas_wide |>
-  left_join(covar_regional_wide, by = 'data') |>
-  arrange(data)
-
-decomps <- lapply(full_series[decomp_vars], to_decomp)
-names(decomps) <- decomp_vars
-
-componentes_long <- function(var_name, label) {
-  d <- decomps[[var_name]]
-  tibble(
-    data = full_series$data,
-    Observed = as.numeric(d$x),
-    Trend = as.numeric(d$trend),
-    Seasonal = as.numeric(d$seasonal),
-    Remainder = as.numeric(d$random)
-  ) |>
-    pivot_longer(-data, names_to = 'component', values_to = 'valor') |>
-    group_by(component) |>
-    mutate(valor_z = as.numeric(scale(valor))) |>
-    ungroup() |>
-    mutate(serie = label)
-}
-
-ilustracao <- bind_rows(
-  componentes_long('P. vivax', 'P. vivax'),
-  componentes_long('P. falciparum', 'P. falciparum'),
-  componentes_long('rhum', 'Covariate')
-) |>
-  mutate(
-    component = factor(
-      component,
-      levels = c('Observed', 'Trend', 'Seasonal', 'Remainder')
-    )
-  )
-
-p <- ilustracao |>
-  ggplot(aes(x = data, y = valor_z, linetype = serie, color = serie)) +
-  geom_line() +
-  scale_linetype_manual(values = SERIE_LINETYPES, name = NULL) +
-  scale_color_manual(values = SERIE_COLORS, name = NULL) +
-  facet_wrap(~component, ncol = 1, scales = 'free_y') +
-  labs(x = NULL, y = 'Standardized value (z-score)') +
-  BASE_THEME
-ggsave(
-  'results/eda/covariates_decomposition_example_rhum.png',
-  p,
-  width = 12,
-  height = 10,
-  device = agg_png
-)
-
 rm(
-  p,
-  sp,
-  slug,
-  serie_taxas,
-  serie_covar_regional,
-  serie_combined,
-  SERIE_LINETYPES,
-  SERIE_COLORS,
-  corr_espacial,
   corr_defor_comparacao,
   resumo_defor_lag,
-  taxas_wide,
-  covar_regional_wide,
-  full_series,
   to_decomp,
   decomp_vars,
-  decomps,
   micro_wide,
   decompose_micro,
   decomp_por_micro,
-  decomp_summary,
-  componentes_long,
-  ilustracao
+  decomp_summary
 )
 
 
@@ -523,6 +280,80 @@ rm(panel_z, fit_intime, fits_intime, rate_ratios, lrt_resultados)
 
 
 # ===========================================================================
+# SECTION 2b: In-time explanatory power -- CNES candidates
+#
+# All 45 CNES covariates in one joint model is unstable (severe
+# multicollinearity between facility counts -- 2.1.eda.R's own attempt
+# at a joint model needed dispersion-corrected SEs and still barely
+# converged). Tested one at a time instead, against the same base
+# structure as section 2, restricted to the 17 that cleared
+# |cor_transversal| > 0.2 in 2.1.eda.R section 5's screening -- the
+# question here is "does this ONE facility type explain anything on
+# its own," not "which combination is best." ano >= 2005 (no CNES
+# source before that).
+# ===========================================================================
+
+ESPECIES <- c('P. vivax', 'P. falciparum')
+CNES_PATTERN <- '^n_(estabelecimentos|vinc_sus|atendamb|atendhos|urgemerg|tp_)'
+CNES_SHORTLIST <- c(
+  'n_tp_32', 'n_tp_15', 'n_tp_73', 'n_tp_20', 'n_tp_72', 'n_tp_68',
+  'n_tp_36', 'n_tp_39', 'n_tp_05', 'n_tp_74', 'n_tp_02', 'n_tp_01',
+  'n_tp_22', 'n_tp_81', 'n_tp_43', 'n_estabelecimentos', 'n_tp_75'
+)
+
+panel_cnes_z <- panel |>
+  filter(ano >= 2005) |>
+  mutate(across(all_of(CNES_SHORTLIST), ~ as.numeric(scale(.x))))
+
+fit_base_only <- function(df) {
+  glm(
+    numCasos ~ factor(codMicroRes) +
+      ns(ano, df = 3) +
+      factor(mes) +
+      offset(log(populacao)),
+    family = poisson,
+    data = df
+  )
+}
+
+bases_cnes <- lapply(ESPECIES, function(sp) {
+  fit_base_only(panel_cnes_z |> filter(especie == sp))
+})
+names(bases_cnes) <- ESPECIES
+
+rate_ratios_cnes <- bind_rows(lapply(ESPECIES, function(sp) {
+  df <- panel_cnes_z |> filter(especie == sp)
+  base <- bases_cnes[[sp]]
+  bind_rows(lapply(CNES_SHORTLIST, function(col) {
+    full <- update(base, as.formula(paste('. ~ . +', col)), data = df)
+    coefs <- coef(summary(full))
+    ci <- confint.default(full, parm = col)
+    a <- anova(base, full, test = 'Chisq')
+    tibble(
+      especie = sp,
+      covariavel = col,
+      rate_ratio = exp(coefs[col, 'Estimate']),
+      ci_low = exp(ci[1, 1]),
+      ci_high = exp(ci[1, 2]),
+      p_valor = coefs[col, 'Pr(>|z|)'],
+      deviance_explicada_pct = 100 *
+        (a$`Resid. Dev`[1] - a$`Resid. Dev`[2]) / a$`Resid. Dev`[1]
+    )
+  }))
+}))
+
+message(
+  'In-time rate ratios, CNES shortlist (per 1-SD increase, one ',
+  'covariate at a time):'
+)
+print(rate_ratios_cnes, n = Inf)
+
+rate_ratios_cnes |> write_csv('results/eda/cnes_intime_rate_ratios.csv')
+
+rm(ESPECIES, panel_cnes_z, fit_base_only, bases_cnes, rate_ratios_cnes)
+
+
+# ===========================================================================
 # SECTION 3: Realistic-lag predictive power (GLM, train/test)
 #
 # Same structure as section 2, covariates re-lagged to values actually
@@ -534,6 +365,30 @@ rm(panel_z, fit_intime, fits_intime, rate_ratios, lrt_resultados)
 # ===========================================================================
 
 source('scripts/loss_functions.R')
+
+N_POSTERIOR_SAMPLES <- 300
+
+# Frequentist analog of 2.3.model_iteration.R's inla.posterior.sample()
+# use: samples the linear predictor from its asymptotic-normal sampling
+# distribution (predict.glm's se.fit, i.e. parameter uncertainty), then
+# simulates one new Poisson observation per draw (observation noise) --
+# same two layers of uncertainty the INLA posterior predictive
+# combines, just via the GLM's own asymptotics instead of a real
+# posterior.
+predictive_interval_poisson <- function(fit, newdata, pop) {
+  pr <- predict(fit, newdata, type = 'link', se.fit = TRUE)
+  eta_samples <- vapply(
+    seq_len(N_POSTERIOR_SAMPLES),
+    function(i) rnorm(length(pr$fit), pr$fit, pr$se.fit),
+    numeric(length(pr$fit))
+  )
+  mu_samples <- exp(eta_samples)
+  sim <- apply(mu_samples, 2, function(mu) rpois(length(mu), mu)) / pop * 1e5
+  tibble(
+    ci_low = apply(sim, 1, quantile, probs = 0.025),
+    ci_high = apply(sim, 1, quantile, probs = 0.975)
+  )
+}
 
 panel_lagged <- panel |>
   arrange(codMicroRes, idMes) |>
@@ -566,6 +421,9 @@ fit_predictive <- function(especie_alvo) {
   pred_base <- predict(base, teste, type = 'response') / teste$populacao * 1e5
   pred_full <- predict(full, teste, type = 'response') / teste$populacao * 1e5
 
+  ci_base <- predictive_interval_poisson(base, teste, teste$populacao)
+  ci_full <- predictive_interval_poisson(full, teste, teste$populacao)
+
   tibble(
     especie = especie_alvo,
     modelo = c('sem_covariaveis', 'com_covariaveis'),
@@ -574,7 +432,16 @@ fit_predictive <- function(especie_alvo) {
     rae = c(rae(real, pred_base), rae(real, pred_full)),
     rmsle = c(rmsle(real, pred_base), rmsle(real, pred_full)),
     rse = c(rse(real, pred_base), rse(real, pred_full)),
-    cor = c(cor(real, pred_base), cor(real, pred_full))
+    cor = c(cor(real, pred_base), cor(real, pred_full)),
+    # Should sit near 0.95 if honest.
+    coverage_95 = c(
+      mean(real >= ci_base$ci_low & real <= ci_base$ci_high),
+      mean(real >= ci_full$ci_low & real <= ci_full$ci_high)
+    ),
+    largura_95 = c(
+      mean(ci_base$ci_high - ci_base$ci_low),
+      mean(ci_full$ci_high - ci_full$ci_low)
+    )
   )
 }
 
@@ -603,4 +470,82 @@ print(read_csv(
 
 resultados_preditivos |> write_csv('results/eda/covariates_predictive_test.csv')
 
-rm(panel_lagged, fit_predictive, resultados_preditivos)
+rm(
+  N_POSTERIOR_SAMPLES, predictive_interval_poisson, panel_lagged,
+  fit_predictive, resultados_preditivos
+)
+
+
+# ===========================================================================
+# SECTION 3b: Realistic-lag predictive power -- CNES candidates
+#
+# Same 17-covariate shortlist as section 2b, one at a time, same
+# train < 2018 / test 2018-2020 split -- but CNES needs its own lag,
+# distinct from ERA5's. 1.data_wrangling.R joins CNES by (microregion,
+# ano) alone, so a given year's December snapshot is attached to that
+# SAME year's January through November too -- eleven of those twelve
+# months come before the snapshot exists. Lagged here by 12 months
+# (one full year) on the monthly panel, so ano X uses ano X-1's
+# snapshot throughout -- the same realism fix section 3 applies to
+# ERA5/deforestation, just not caught for CNES until now.
+# ===========================================================================
+
+panel_cnes_lagged <- panel |>
+  arrange(codMicroRes, idMes) |>
+  group_by(codMicroRes) |>
+  mutate(across(all_of(CNES_SHORTLIST), ~ dplyr::lag(.x, 12))) |>
+  ungroup() |>
+  filter(ano >= 2006) |>
+  mutate(across(all_of(CNES_SHORTLIST), ~ as.numeric(scale(.x))))
+
+fit_predictive_cnes <- function(especie_alvo) {
+  treino <- panel_cnes_lagged |> filter(especie == especie_alvo, ano < 2018)
+  teste <- panel_cnes_lagged |>
+    filter(especie == especie_alvo, ano >= 2018, ano <= 2020)
+
+  base <- glm(
+    numCasos ~ factor(codMicroRes) +
+      ns(ano, df = 3) +
+      factor(mes) +
+      offset(log(populacao)),
+    family = poisson,
+    data = treino
+  )
+
+  real <- teste$numCasos / teste$populacao * 1e5
+  pred_base <- predict(base, teste, type = 'response') / teste$populacao * 1e5
+
+  bind_rows(lapply(CNES_SHORTLIST, function(col) {
+    full <- update(base, as.formula(paste('. ~ . +', col)), data = treino)
+    pred_full <- predict(full, teste, type = 'response') / teste$populacao * 1e5
+    tibble(
+      especie = especie_alvo,
+      covariavel = col,
+      mbe_base = mbe(real, pred_base),
+      mbe_full = mbe(real, pred_full),
+      rse_base = rse(real, pred_base),
+      rse_full = rse(real, pred_full),
+      cor_base = cor(real, pred_base),
+      cor_full = cor(real, pred_full)
+    )
+  }))
+}
+
+resultados_preditivos_cnes <- bind_rows(
+  fit_predictive_cnes('P. vivax'),
+  fit_predictive_cnes('P. falciparum')
+)
+
+message(
+  'Realistic-lag predictive test, CNES shortlist (rate scale, ',
+  'test = 2018-2020), one covariate at a time vs. base:'
+)
+print(resultados_preditivos_cnes, n = Inf)
+
+resultados_preditivos_cnes |>
+  write_csv('results/eda/cnes_predictive_test.csv')
+
+rm(
+  CNES_PATTERN, CNES_SHORTLIST, panel_cnes_lagged, fit_predictive_cnes,
+  resultados_preditivos_cnes
+)

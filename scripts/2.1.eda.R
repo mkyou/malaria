@@ -5,12 +5,12 @@
 # 1.data_wrangling.R's microregion x month panel and the Legal Amazon
 # shapefile.
 #
-# Paper-facing conventions: no baked-in titles, species double-encoded
-# by shape/linetype/color (grayscale-safe), Liberation Sans via ragg,
-# sequential white-to-red rate scale.
-#
 # Sections: 1) case time series, 2) spatial trend/seasonality maps,
-# 3) mean-variance / overdispersion (R2.1), 4) chronic spatial hotspots.
+# 3) mean-variance / overdispersion (R2.1), 4) chronic spatial
+# hotspots, 5) health facilities (CNES) screening against them.
+# Rate (cases per 100k) throughout, not raw counts -- microregions
+# vary too much in population for a raw-count correlation/decomposition
+# to mean anything comparable across them.
 #
 # Figures saved to results/eda/.
 #-------------------------------------------------------------------------
@@ -45,7 +45,10 @@ micro_reg_f <- read_csv(
   mutate(especie = 'P. falciparum')
 
 panel <- bind_rows(micro_reg_v, micro_reg_f) |>
-  mutate(data = as.Date(sprintf('%d-%02d-01', ano, mes)))
+  mutate(
+    data = as.Date(sprintf('%d-%02d-01', ano, mes)),
+    taxa = numCasos / populacao * 1e5
+  )
 
 rm(micro_reg_v, micro_reg_f)
 
@@ -322,28 +325,7 @@ print(resumo)
 # 1% of rate cells (a per-species threshold, since case magnitudes
 # differ a lot between vivax and falciparum) -- a frequency count, not
 # a single peak, so a one-off spike doesn't outrank a chronic hotspot.
-#
-# `fronteira` flags whether the microregion sits on an international
-# border (informed by known Legal Amazon geography, not a GIS
-# intersection check -- worth verifying computationally before this
-# becomes an actual covariate). It's a spatial correlate, not a
-# proposed mechanism: bordering a country doesn't mean cases are
-# imported from it (French Guiana has strong vector control and isn't
-# a plausible source), and several chronic hotspots (Tefé, Rio Preto
-# da Eva, Caracaraí, Furos de Breves) aren't border microregions at
-# all. The more likely common factor is that border regions in the
-# Amazon tend to be remote, under-governed, and drive small-scale
-# mining -- the same traits plenty of interior hotspots share -- so
-# `fronteira` is a rough proxy for that, not a claim about cross-
-# border transmission.
 # ===========================================================================
-
-BORDER_COUNTRY <- c(
-  'Cruzeiro do Sul' = 'Peru',
-  'Juruá' = 'Peru',
-  'Rio Negro' = 'Colombia/Venezuela',
-  'Oiapoque' = 'French Guiana'
-)
 
 annual <- panel |>
   group_by(especie, codMicroRes, nomeMicroRes, siglaUF, ano) |>
@@ -371,7 +353,6 @@ hotspots <- freq_extremos |>
     taxa_mediana,
     by = c('especie', 'codMicroRes', 'nomeMicroRes', 'siglaUF')
   ) |>
-  mutate(fronteira = coalesce(BORDER_COUNTRY[nomeMicroRes], 'interior')) |>
   arrange(especie, desc(n_top1pct))
 
 top_hotspots <- hotspots |>
@@ -411,6 +392,121 @@ for (sp in unique(panel$especie)) {
   )
 }
 
+# ===========================================================================
+# SECTION 5: Health facilities (CNES) -- screening
+#
+# Grew out of section 4's chronic-hotspot question, not out of
+# 2.2.eda.R's covariate-signal one -- does any of CNES's 45 candidate
+# covariates (facility-type counts plus SUS/ambulatory/hospital/
+# emergency flags, see 0.download_data.R section 7) explain WHICH
+# microregions are chronic hotspots? Screened two ways:
+#   - temporal: per-microregion trend/remainder decomposition (same
+#     method as 2.2.eda.R section 1b) -- does a covariate's short-term
+#     fluctuation track case rate's, within an area, net of shared
+#     trend/season?
+#   - cross-sectional: does a microregion's average covariate LEVEL
+#     track its average case rate, across microregions -- a between-
+#     area difference, not a within-area one, which is what the
+#     chronic-hotspot question above actually is.
+# Both matter: the temporal test catches the same trend-conflation
+# pitfall 2.2.eda.R's decomposition exists for (most raw correlations
+# here are dominated by a shared secular trend -- facility counts grew
+# while case rates fell, 2005-2022 -- with near-zero remainder), the
+# cross-sectional one is what actually surfaced signal.
+#
+# ano < 2005 has no CNES source (0.download_data.R section 7).
+# ===========================================================================
+
+CNES_PATTERN <- '^n_(estabelecimentos|vinc_sus|atendamb|atendhos|urgemerg|tp_)'
+CNES_COLS <- names(panel)[grepl(CNES_PATTERN, names(panel))]
+
+panel_cnes <- panel |> filter(ano >= 2005, ano <= 2020)
+
+# Full trend/seasonal/remainder decomposition, same method as
+# 2.2.eda.R section 1b. Seasonal is forced NA for every CNES column,
+# same reasoning as defor_lag2 there: these are December snapshots
+# broadcast flat across 12 months, a step function, not a smoothly-
+# varying series -- decompose()'s moving-average trend misreads the
+# step's residual as seasonality, not real within-year signal.
+cnes_temporal <- bind_rows(lapply(CNES_COLS, function(col) {
+  bind_rows(lapply(c('P. vivax', 'P. falciparum'), function(sp) {
+    sub <- panel_cnes |> filter(especie == sp)
+    per_micro <- sub |>
+      group_split(codMicroRes) |>
+      lapply(function(d) {
+        col_bad <- sd(d[[col]], na.rm = TRUE) == 0 || any(is.na(d[[col]]))
+        if (nrow(d) < 24 || col_bad) {
+          return(NULL)
+        }
+        dv <- decompose(
+          ts(d$taxa, start = c(2005, 1), frequency = 12),
+          type = 'additive'
+        )
+        dc <- decompose(
+          ts(d[[col]], start = c(2005, 1), frequency = 12),
+          type = 'additive'
+        )
+        tibble(
+          raw = suppressWarnings(cor(d$taxa, d[[col]], use = 'complete.obs')),
+          trend = suppressWarnings(
+            cor(dv$trend, dc$trend, use = 'complete.obs')
+          ),
+          remainder = suppressWarnings(
+            cor(dv$random, dc$random, use = 'complete.obs')
+          )
+        )
+      }) |>
+      bind_rows()
+    if (nrow(per_micro) == 0) {
+      return(NULL)
+    }
+    tibble(
+      covariavel = col,
+      especie = sp,
+      raw_mediana = median(per_micro$raw, na.rm = TRUE),
+      trend_mediana = median(per_micro$trend, na.rm = TRUE),
+      seasonal_mediana = NA_real_,
+      remainder_mediana = median(per_micro$remainder, na.rm = TRUE),
+      n_micro = nrow(per_micro)
+    )
+  }))
+}))
+
+cnes_transversal <- panel_cnes |>
+  group_by(codMicroRes, especie) |>
+  summarise(
+    taxa_media = sum(numCasos) / mean(populacao) * 1e5 / n_distinct(ano),
+    across(all_of(CNES_COLS), ~ mean(.x, na.rm = TRUE)),
+    .groups = 'drop'
+  )
+
+cnes_cross <- bind_rows(lapply(CNES_COLS, function(col) {
+  bind_rows(lapply(c('P. vivax', 'P. falciparum'), function(sp) {
+    d <- cnes_transversal |> filter(especie == sp)
+    tibble(
+      covariavel = col,
+      especie = sp,
+      cor_transversal = suppressWarnings(cor(
+        d$taxa_media,
+        d[[col]],
+        use = 'complete.obs',
+        method = 'spearman'
+      ))
+    )
+  }))
+}))
+
+cnes_screening <- cnes_temporal |>
+  left_join(cnes_cross, by = c('covariavel', 'especie')) |>
+  arrange(desc(abs(cor_transversal)))
+
+message(
+  'CNES screening, all 45 candidates -- temporal remainder vs. ',
+  'cross-sectional level:'
+)
+print(cnes_screening, n = 20)
+cnes_screening |> write_csv('results/eda/cnes_covariates_screening.csv')
+
 rm(
   panel,
   micro_sf,
@@ -428,7 +524,6 @@ rm(
   resumo,
   serie_total,
   serie_estado,
-  BORDER_COUNTRY,
   annual,
   taxa_mediana,
   freq_extremos,
@@ -436,5 +531,12 @@ rm(
   top_hotspots,
   sp,
   slug,
-  p
+  p,
+  CNES_PATTERN,
+  CNES_COLS,
+  panel_cnes,
+  cnes_temporal,
+  cnes_transversal,
+  cnes_cross,
+  cnes_screening
 )
