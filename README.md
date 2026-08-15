@@ -52,8 +52,11 @@ for any spatially-structured random effect. Rate is always cases per
 very different population.
 
 `hotspots` is a time-varying feature (months in the prior 3 years at or
-above that species' own top-1% rate). Test-only, tried and rejected as a
-covariate (see below).
+above that species' own top-1% rate), built into the panel here but not
+used as a covariate anywhere in `2.3.model_iteration.R` or
+`3.family_comparison.R`. The static, whole-period version of the same
+idea (`results/eda/hotspots_ranking.csv`, from `2.1.eda.R`) is what
+actually gets used, in §5's hotspot-vs-rest breakdown.
 
 ## 2.1 / 2.2 — Exploratory analysis
 
@@ -169,6 +172,19 @@ the year. Negative Binomial's free dispersion parameter fixes this in
 both species. Confirmed independent of the `int.strategy` (`eb` vs `ccd`)
 INLA integration setting, and independent of `num.threads`.
 
+Negative Binomial is also the heaviest, least stable fit in the whole
+pipeline. The kernel OOM-killer repeatedly killed the INLA process
+mid-fit here, which is why every CV script sets `num.threads = '2:1'`
+instead of full parallelism. INLA also crashed outright a handful of
+times independent of memory pressure. `results/family_comparison/models/retry_log.csv`
+has 4 such crashes, all Negative Binomial, all Model 6/falciparum;
+`results/holdout/models/retry_log.csv` has one more. Bell's own retry
+log (would be `results/model_iteration/models/retry_log.csv`) never
+needed to exist. Every fold checkpoints to disk as it completes, and
+every crash, or a fit that completes but comes back numerically
+degenerate (`cor < 0.3` or `rse > 5`), triggers one cold retry without
+the previous fold's warm start.
+
 **No single family wins uniformly.** Always compare `|coverage_95 -
 0.95|` (distance from the calibration target), not raw coverage
 magnitude, since over-covering is also miscalibration. Which family
@@ -203,48 +219,23 @@ fold, a single fit covering the whole holdout with no refit at all). All
 folds train on real data only, expanding forward, never on the model's
 own past predictions.
 
-Negative Binomial won clearly on falciparum (much lower rse, higher
-correlation at the 3-month and 2-year horizons) and was at least as good
-on vivax (rse ties Bell, better calibration). This is a bigger, more
-consistent family signal than anything visible in the pre-holdout CV.
-The script now only runs Negative Binomial: Bell and Poisson were run
-here once to make that comparison, and their results stay on disk and
-in git history (`results/holdout/models/`, `results/holdout/residuals/`)
-even though the current script no longer regenerates them.
-Per-row predictions are saved (`results/holdout/residuals/`), not just
-fold metrics, specifically to support the spatial diagnostics in §5.
+Median across holdout folds, Negative Binomial / Model 5, `results/holdout/models/`:
 
-Median across holdout folds, `results/holdout/models/`:
+| Horizon | Species | RSE | cor | coverage_95 | dist from 0.95 | width_95 |
+|---|---|---|---|---|---|---|
+| 3-month | P. falciparum | 0.172 | 0.931 | 0.975 | 0.025 | 23.8 |
+| 3-month | P. vivax | 0.128 | 0.944 | 0.953 | 0.003 | 118.7 |
+| 1-year | P. falciparum | 0.399 | 0.876 | 0.985 | 0.035 | 64.1 |
+| 1-year | P. vivax | 0.243 | 0.899 | 0.957 | 0.007 | 326.7 |
+| 2-year | P. falciparum | 0.523 | 0.801 | 0.988 | 0.038 | 76.3 |
+| 2-year | P. vivax | 0.256 | 0.882 | 0.958 | 0.008 | 422.8 |
 
-| Horizon | Family | Species | RSE | cor | coverage_95 | dist from 0.95 | width_95 |
-|---|---|---|---|---|---|---|---|
-| 3-month | bell | P. falciparum | 0.356 | 0.910 | 0.942 | 0.008 | 9.9 |
-| 3-month | nbinomial | P. falciparum | 0.172 | 0.931 | 0.975 | 0.025 | 23.8 |
-| 3-month | poisson | P. falciparum | 0.393 | 0.907 | 0.891 | 0.059 | 5.3 |
-| 3-month | bell | P. vivax | 0.129 | 0.942 | 0.868 | 0.082 | 43.7 |
-| 3-month | nbinomial | P. vivax | 0.128 | 0.944 | 0.953 | 0.003 | 118.7 |
-| 3-month | poisson | P. vivax | 0.149 | 0.942 | 0.746 | 0.204 | 21.2 |
-| 1-year | bell | P. falciparum | 0.407 | 0.868 | 0.985 | 0.035 | 50.8 |
-| 1-year | nbinomial | P. falciparum | 0.399 | 0.876 | 0.985 | 0.035 | 64.1 |
-| 1-year | poisson | P. falciparum | 0.430 | 0.864 | 0.978 | 0.028 | 48.1 |
-| 1-year | bell | P. vivax | 0.245 | 0.895 | 0.956 | 0.006 | 271.7 |
-| 1-year | nbinomial | P. vivax | 0.243 | 0.899 | 0.957 | 0.007 | 326.7 |
-| 1-year | poisson | P. vivax | 0.252 | 0.894 | 0.938 | 0.012 | 290.9 |
-| 2-year | bell | P. falciparum | 0.609 | 0.648 | 0.987 | 0.037 | 76.5 |
-| 2-year | nbinomial | P. falciparum | 0.523 | 0.801 | 0.988 | 0.038 | 76.3 |
-| 2-year | poisson | P. falciparum | 0.647 | 0.688 | 0.978 | 0.028 | 72.6 |
-| 2-year | bell | P. vivax | 0.260 | 0.881 | 0.949 | 0.001 | 381.7 |
-| 2-year | nbinomial | P. vivax | 0.256 | 0.882 | 0.958 | 0.008 | 422.8 |
-| 2-year | poisson | P. vivax | 0.265 | 0.882 | 0.937 | 0.013 | 383.3 |
-
-Unlike the pre-holdout CV, Negative Binomial is the clear pick here: best
-or tied-best RSE and correlation in every row, and coverage never far
-from target. This is the strongest, most consistent family signal in the
-whole project, and it's what retroactively justifies running NB for both
-species in §5 rather than splitting by species as §3's validation CV
-alone would have suggested. Worth being honest that this only became
-clear on the holdout; the validation CV by itself would not have
-pointed there as confidently.
+RSE stays well under 1 and coverage never drifts far from 0.95 at any
+horizon, for either species, on data none of the model/family selection
+in §2.3/§3 ever touched. Correlation drops some at the 2-year horizon
+for falciparum (0.801, the weakest cell here), consistent with §5's
+finding that a handful of specific microregions drive most of the
+degradation at longer horizons.
 
 ## 5. Spatial error diagnostics
 
@@ -312,7 +303,7 @@ Two things worth separating here. First, the model beats the moving
 average at hotspots more often than everywhere else, not less: 64-82% of
 hotspot microregions, against a coin flip or worse outside them. The
 pooled ratio shown in the map hides this, since it sums squared errors
-before dividing and a couple of the worst hotspots (§ below) dominate
+before dividing and a couple of the worst hotspots dominate
 that sum even though most hotspots individually do fine. Second, losing
 to the moving average outside hotspots doesn't mean the prediction is
 bad: RMSLE there is low (0.14-0.17 falciparum, 0.33-0.37 vivax), 4-6x
