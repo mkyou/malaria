@@ -1,0 +1,3 @@
+timestamp,familia,modelo,especie,test_start,motivo,detalhe
+2026-08-15 13:09:04.664491,nbinomial,model5,P. falciparum,232,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>."

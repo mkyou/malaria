@@ -1,20 +1,3 @@
-#-------------------------------------------------------------------------
-# 2.1.eda.R
-#
-# Exploratory figures motivating the modelling approach. Reads
-# 1.data_wrangling.R's microregion x month panel and the Legal Amazon
-# shapefile.
-#
-# Sections: 1) case time series, 2) spatial trend/seasonality maps,
-# 3) mean-variance / overdispersion (R2.1), 4) chronic spatial
-# hotspots, 5) health facilities (CNES) screening against them.
-# Rate (cases per 100k) throughout, not raw counts -- microregions
-# vary too much in population for a raw-count correlation/decomposition
-# to mean anything comparable across them.
-#
-# Figures saved to results/eda/.
-#-------------------------------------------------------------------------
-
 library(dplyr)
 library(readr)
 library(ggplot2)
@@ -52,10 +35,6 @@ panel <- bind_rows(micro_reg_v, micro_reg_f) |>
 
 rm(micro_reg_v, micro_reg_f)
 
-
-# ===========================================================================
-# SECTION 1: Case time series (total and by state)
-# ===========================================================================
 
 serie_total <- panel |>
   group_by(especie, data) |>
@@ -107,15 +86,6 @@ ggsave(
 )
 
 
-# ===========================================================================
-# SECTION 2: Spatial distribution of cases -- trend and seasonality
-#
-# One file per species per view, 2-column facets. Vivax and falciparum
-# share one color scale per view so they're directly comparable.
-# Seasonality's rate is the mean of each year's monthly rate, not
-# sum-then-divide, to stay comparable to section 1's scale.
-# ===========================================================================
-
 micro_sf <- st_read(
   'data/spatial_data/sph_files/microrreg.shp',
   quiet = TRUE
@@ -151,7 +121,6 @@ sazonalidade <- panel |>
 
 season_limits <- range(sazonalidade$taxa, na.rm = TRUE)
 
-# One representative month per meteorological season.
 SEASON_MONTHS <- c('Jan', 'Apr', 'Jul', 'Oct')
 
 sazonalidade_season <- sazonalidade |>
@@ -208,18 +177,6 @@ for (sp in unique(panel$especie)) {
 
 rm(p, sp, slug)
 
-
-# ===========================================================================
-# SECTION 3: Mean-variance relationship / overdispersion (R2.1)
-#
-# A naive per-microregion mean/variance would conflate genuine
-# overdispersion with the trend and seasonality already shown above, so
-# controlling for microregion/year/month means fitting a mean model
-# first (plain Poisson GLM, through 2020) and comparing each
-# microregion's fitted mean to its squared-residual variance. Under a
-# Poisson process variance == mean (reference line); points above it
-# justify Bell/NegBin.
-# ===========================================================================
 
 fit_overdisp <- function(df) {
   fit <- glm(
@@ -309,24 +266,6 @@ message(
 print(resumo)
 
 
-# ===========================================================================
-# SECTION 4: Chronic spatial hotspots
-#
-# bym2's spatial smoothing borrows strength from neighboring
-# microregions -- good for noisy small areas, but it pulls a
-# genuinely, persistently extreme area toward its neighbors' lower
-# level (2.3.model_iteration.R found this shows up as systematic
-# underestimation for exactly these areas). This documents that a
-# small, recurring set of microregions accounts for a disproportionate
-# share of the most extreme rate cells across the whole 2003-2022
-# series, not just recent years.
-#
-# Ranked by how often each microregion lands in its own species' top
-# 1% of rate cells (a per-species threshold, since case magnitudes
-# differ a lot between vivax and falciparum) -- a frequency count, not
-# a single peak, so a one-off spike doesn't outrank a chronic hotspot.
-# ===========================================================================
-
 annual <- panel |>
   group_by(especie, codMicroRes, nomeMicroRes, siglaUF, ano) |>
   summarise(
@@ -392,42 +331,12 @@ for (sp in unique(panel$especie)) {
   )
 }
 
-# ===========================================================================
-# SECTION 5: Health facilities (CNES) -- screening
-#
-# Grew out of section 4's chronic-hotspot question, not out of
-# 2.2.eda.R's covariate-signal one -- does any of CNES's 45 candidate
-# covariates (facility-type counts plus SUS/ambulatory/hospital/
-# emergency flags, see 0.download_data.R section 7) explain WHICH
-# microregions are chronic hotspots? Screened two ways:
-#   - temporal: per-microregion trend/remainder decomposition (same
-#     method as 2.2.eda.R section 1b) -- does a covariate's short-term
-#     fluctuation track case rate's, within an area, net of shared
-#     trend/season?
-#   - cross-sectional: does a microregion's average covariate LEVEL
-#     track its average case rate, across microregions -- a between-
-#     area difference, not a within-area one, which is what the
-#     chronic-hotspot question above actually is.
-# Both matter: the temporal test catches the same trend-conflation
-# pitfall 2.2.eda.R's decomposition exists for (most raw correlations
-# here are dominated by a shared secular trend -- facility counts grew
-# while case rates fell, 2005-2022 -- with near-zero remainder), the
-# cross-sectional one is what actually surfaced signal.
-#
-# ano < 2005 has no CNES source (0.download_data.R section 7).
-# ===========================================================================
 
 CNES_PATTERN <- '^n_(estabelecimentos|vinc_sus|atendamb|atendhos|urgemerg|tp_)'
 CNES_COLS <- names(panel)[grepl(CNES_PATTERN, names(panel))]
 
 panel_cnes <- panel |> filter(ano >= 2005, ano <= 2020)
 
-# Full trend/seasonal/remainder decomposition, same method as
-# 2.2.eda.R section 1b. Seasonal is forced NA for every CNES column,
-# same reasoning as defor_lag2 there: these are December snapshots
-# broadcast flat across 12 months, a step function, not a smoothly-
-# varying series -- decompose()'s moving-average trend misreads the
-# step's residual as seasonality, not real within-year signal.
 cnes_temporal <- bind_rows(lapply(CNES_COLS, function(col) {
   bind_rows(lapply(c('P. vivax', 'P. falciparum'), function(sp) {
     sub <- panel_cnes |> filter(especie == sp)

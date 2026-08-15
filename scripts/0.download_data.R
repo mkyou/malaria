@@ -1,45 +1,9 @@
-#-------------------------------------------------------------------------
-# 0.download_data.R
-#
-# All data acquisition for the project lives here, in sections. Each
-# section is idempotent: it checks for its own output file(s) under
-# data/ and skips the fetch if already present, so re-running this
-# script after a partial run (or just to check it still works) doesn't
-# re-download everything.
-#
-# Sections:
-#   1. Population                   (IBGE SIDRA API, primary source)
-#   2. Malaria notifications        (Mendeley Data, public CC BY 4.0) -- reads
-#                                    populacao_df.csv, so must run after section 1
-#   3. Microregion centroids        (shared setup for sections 5-6; filtered
-#                                    by state, no dependency on sections 1-2)
-#   4. Deforestation                (PRODES/TerraBrasilis, state x year)
-#   5. Precipitation                (ERA5 / Copernicus CDS)
-#   6. Temperature & relative humidity (ERA5 / Copernicus CDS)
-#   7. Health facilities            (CNES / DATASUS, municipality x year)
-#-------------------------------------------------------------------------
-
 library(dplyr)
 library(readr)
 library(tidyr)
 
-# The 9 states making up the Brazilian Legal Amazon -- shared by section 3
-# (microregion filtering) and section 4 (deforestation, state x year).
 LEGAL_AMAZON_STATES <- c('AC', 'AM', 'AP', 'MA', 'MT', 'PA', 'RO', 'RR', 'TO')
 
-# ===========================================================================
-# SECTION 1: Population (IBGE SIDRA, primary source)
-#
-# Runs before malaria notifications (section 2) because that section
-# reads populacao_df.csv.
-#
-# SIDRA table 6579 ("População residente estimada") does not cover every year.
-# Years around a Census or population count are published as separate tables:
-#   - 2003-2006, 2008-2009, 2011-2021: table 6579 (annual estimates)
-#   - 2007: table 793 ("Contagem da População 2007")
-#   - 2010: table 200 (Census 2010)
-#   - 2022: table 4709 (Census 2022)
-# ===========================================================================
 
 POPULACAO_OUT <- 'data/support_data/populacao_df.csv'
 
@@ -110,10 +74,6 @@ if (file.exists(POPULACAO_OUT)) {
     select(codMunRes6, codMunRes, ano, populacao) |>
     arrange(codMunRes, ano)
 
-  # Municipalities emancipated after 2003 genuinely have no primary
-  # record before emancipation (e.g. Mojuí dos Campos, PA, code
-  # 1504752, emancipated from Santarém in 2013 -- no entry in
-  # 2007/2010). This is expected; section 2's interpolation fills it in.
   year_counts <- table(pop$codMunRes)
   incomplete <- year_counts[year_counts < 18]
   if (length(incomplete) > 0) {
@@ -169,41 +129,21 @@ if (file.exists(POPULACAO_OUT)) {
 }
 
 
-# ===========================================================================
-# SECTION 2: Malaria notifications (SIVEP mirror, Mendeley Data)
-#
-# Monteiro K. et al. (2023). Legal Amazon malaria notification records,
-# Brazil, 2003-2022 (v2). Mendeley Data. doi: 10.17632/9n6b97fsbd.2
-# License: CC BY 4.0.
-# ===========================================================================
-
 MENDELEY_DATASET_ID <- '9n6b97fsbd'
 MENDELEY_VERSION <- 2
 MENDELEY_DOI <- '10.17632/9n6b97fsbd.2'
 
-# Direct URL for the pinned /2 version (validated manually).
-# Fallback: if the file_id changes, resolve the new one from the DOI at
-# https://data.mendeley.com/datasets/9n6b97fsbd/2 and update the URL.
 DATASET_URL <- paste0(
   'https://data.mendeley.com/public-files/datasets/',
   MENDELEY_DATASET_ID,
   '/files/e22ce7ac-daaf-4d93-a98d-6e0d3fbe643d/file_downloaded'
 )
 
-# Checksum of Dataset.csv v2 -- catches silent content changes.
 DATASET_SHA256 <- '3241ff18e67b5ee63b92145976c883268c839771da17c669fd350c7f844b8954'
 
 YEAR_START <- 2003
 YEAR_END <- 2022
 
-# Test-result code classification (dataset's atributos.csv):
-#   02 P. falciparum
-#   03 P. falciparum + P. falciparum gametocytes
-#   04 P. vivax
-#   05 P. falciparum + P. vivax (mixed -- excluded)
-#   06 P. vivax + P. vivax gametocytes
-#   07 P. falciparum gametocytes
-#   08-11 other (excluded)
 FALCIPARUM_CODES <- c(2, 3, 7)
 VIVAX_CODES <- c(4, 6)
 
@@ -233,7 +173,6 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     message(sprintf('[skip] %s already exists', RAW_FILE))
   }
 
-  # Verify checksum (requires the `digest` package -- available by default on R 4+).
   if (requireNamespace('digest', quietly = TRUE)) {
     observed <- digest::digest(file = RAW_FILE, algo = 'sha256')
     if (!identical(observed, DATASET_SHA256)) {
@@ -271,7 +210,6 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     )
   )
 
-  # Municipality mapping (6 digits) -> (7 digits, microregion, etc.)
   cities_df <- read_csv(
     'data/support_data/municipios_codigos.csv',
     trim_ws = TRUE
@@ -290,16 +228,6 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     )
   )
 
-  # Interpolate with `approx()` per municipality (extending flat at the
-  # boundaries, rule=2) for municipalities emancipated after 2003 with
-  # no population record before emancipation -- e.g. Mojuí dos Campos,
-  # PA (code 1504752, split from Santarém in 2013), whose real data
-  # only starts in 2012. Already checked: harmless, since its pre-2013
-  # case counts are also structurally zero (filed under Santarém's
-  # code before the split) and both municipalities aggregate into the
-  # same microregion (15002) in 1.data_wrangling.R, so the frozen
-  # population and the zero case count wash out together at the grain
-  # the models actually use.
   populacao_df <- populacao_df |>
     group_by(codMunRes6, codMunRes) |>
     complete(ano = seq(YEAR_START, YEAR_END)) |>
@@ -330,16 +258,13 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
     ) |>
     filter(!is.na(tipo))
 
-  # Aggregate by (municipality, id_mes, tipo)
   agg <- raw |>
     group_by(codMunRes6 = Municipality, id_mes, tipo) |>
     summarise(numCasos = sum(Notifications), .groups = 'drop')
 
-  # Municipality universe comes from populacao_df.csv
   muni_universe <- populacao_df |>
     distinct(codMunRes6, codMunRes)
 
-  # Cross-product (muni x id_mes x tipo) with numCasos = 0 where absent
   panel <- expand_grid(
     muni_universe,
     id_mes = seq_len((YEAR_END - YEAR_START + 1L) * 12L),
@@ -386,19 +311,6 @@ if (file.exists(FALCIPARUM_OUT) && file.exists(VIVAX_OUT)) {
   )
 }
 
-
-# ===========================================================================
-# SECTION 3: Microregion centroids (shared setup for sections 5-6)
-#
-# Needed to extract per-microregion values from the gridded ERA5
-# products. Read from the shapefile already versioned at
-# data/spatial_data/sph_files/microrreg.shp (560 Brazilian
-# microregions, valid MULTIPOLYGON geometry, confirmed 560/560 valid
-# with sf::st_is_valid()) rather than refetched via geobr. This local
-# shapefile is filtered to LEGAL_AMAZON_STATES and centroided directly
-# with sf::st_centroid(), the real area-weighted centroid, no
-# approximation.
-# ===========================================================================
 
 CENTROIDS_OUT <- 'data/spatial_data/micro_centroids.csv'
 
@@ -470,34 +382,6 @@ if (file.exists(CENTROIDS_OUT)) {
   rm(micro_sf, uf_lookup, expected_codes, coords, centroids)
 }
 
-
-# ===========================================================================
-# SECTION 4: Deforestation (PRODES / TerraBrasilis, state x year, 2-year lag)
-#
-# State-level, 2-year lag: PRODES publishes each year late.
-#
-# Primary source: TerraBrasilis WFS (prodes-legal-amz:yearly_
-# deforestation), which already carries a `state` field, summed by
-# (state, year). Only covers 2008-2022 (current PRODES methodology) --
-# confirmed complete, 135/135 (state, year) cells. The pre-2008 layer
-# (accumulated_deforestation_2007) is NOT a usable annual source: it's
-# a cumulative snapshot, not per-year increments (summing it gives
-# <3 km² for 2003-2006 and ~718,000 km² for 2007 -- nonsense). So
-# 2003-2007 has no primary or secondary state-level source at all;
-# those years use the secondary-sourced NATIONAL total (see README),
-# allocated across states by each state's average real share of
-# 2008-2010 (PA ~48%, MT ~19%, ...). That's an estimate, not a
-# measurement -- flagged via `source = secondary_unverified_state_
-# allocated`, not to be read as real state data for those years.
-#
-# 2001-2002 use the same secondary source too, but only to make
-# km2_lag2 (the 2-year lag actually used downstream) complete from
-# ano=2003 onward -- YEAR_START is 2003, so 2001/2002 rows themselves
-# are dropped from the written file after the lag is computed.
-#
-# Server is flaky (frequent 502s), paginates at 50000 features -- fetched
-# year-by-year with retries and pagination.
-# ===========================================================================
 
 DEFORESTATION_OUT <- 'data/support_data/deforestation_df.csv'
 
@@ -598,14 +482,6 @@ if (file.exists(DEFORESTATION_OUT)) {
 
   STATES <- LEGAL_AMAZON_STATES
 
-  # Secondary-sourced NATIONAL totals (unverified -- see README), used
-  # only for 2001-2007 (2001-2002 solely to complete km2_lag2 for
-  # ano=2003-2004, see above), allocated across states by their
-  # average real share of the 2008-2010 total. Wikipedia's "Estimates
-  # of the rates of deforestation in the Amazon rainforest from 1970
-  # to 2022" table (INPE/FAO-sourced), cross-checked against INPE
-  # press-release text -- confirmed 2003-2007 here still match that
-  # table to within 1 km² (2006: 14286 here vs 14285 there, negligible).
   secondary_national_km2 <- c(
     `2001` = 18165,
     `2002` = 21651,
@@ -678,23 +554,6 @@ if (file.exists(DEFORESTATION_OUT)) {
 }
 
 
-# ===========================================================================
-# SECTION 5: Precipitation (ERA5 / Copernicus CDS)
-#
-# One request for the whole Legal Amazon bounding box and full time
-# range, then local
-# extraction at each microregion centroid.
-#
-# Requires a CDS API key in ~/.cdsapirc:
-#   url: https://cds.climate.copernicus.eu/api
-#   key: <your key>
-# Register at https://cds.climate.copernicus.eu
-#
-# Units: ERA5's monthly-averaged-reanalysis total_precipitation is a
-# mean DAILY rate for that month (metres/day), not a monthly total;
-# converted to mm/day here.
-# ===========================================================================
-
 PRECIP_OUT <- 'data/support_data/precip_df.csv'
 
 if (file.exists(PRECIP_OUT)) {
@@ -703,9 +562,6 @@ if (file.exists(PRECIP_OUT)) {
   library(ecmwfr)
   library(terra)
 
-  # wf_request() reads the key from the keyring, not from ~/.cdsapirc
-  # directly, and the keyring is per-process (not persisted) -- so it
-  # must be registered here, every fresh run.
   cdsapirc <- readLines('~/.cdsapirc')
   cds_key <- trimws(sub('^key:\\s*', '', grep('^key:', cdsapirc, value = TRUE)))
   wf_set_key(key = cds_key, user = 'ecmwfr')
@@ -724,7 +580,7 @@ if (file.exists(PRECIP_OUT)) {
       year = as.character(2003:2022),
       month = sprintf('%02d', 1:12),
       time = '00:00',
-      area = c(5, -75, -20, -40), # N, W, S, E -- buffer around Legal Amazon
+      area = c(5, -75, -20, -40),
       format = 'netcdf',
       target = basename(ERA5_NC)
     )
@@ -773,18 +629,6 @@ if (file.exists(PRECIP_OUT)) {
 }
 
 
-# ===========================================================================
-# SECTION 6: Temperature & relative humidity (ERA5 / Copernicus CDS)
-#
-# Rebuilt here at microregion grain, same method as section 5: one CDS
-# request for the whole time range/bbox, extracted at the centroids.
-#
-# ERA5 has no direct relative-humidity variable at single levels, so
-# rhum is derived from 2m_temperature and 2m_dewpoint_temperature via
-# the Magnus-Tetens approximation (standard meteorological practice).
-# temp is kept in Kelvin, matching the legacy file's convention.
-# ===========================================================================
-
 TEMP_OUT <- 'data/support_data/temp_df.csv'
 RHUM_OUT <- 'data/support_data/rhum_df.csv'
 
@@ -816,7 +660,7 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
       year = as.character(2003:2022),
       month = sprintf('%02d', 1:12),
       time = '00:00',
-      area = c(5, -75, -20, -40), # N, W, S, E -- buffer around Legal Amazon
+      area = c(5, -75, -20, -40),
       format = 'netcdf',
       target = basename(ERA5_TEMP_NC)
     )
@@ -834,9 +678,6 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
   cent <- read_csv(CENTROIDS_OUT, show_col_types = FALSE)
   pts <- vect(cent, geom = c('lon', 'lat'), crs = 'EPSG:4326')
 
-  # terra names combined-variable NetCDF layers "<var>_<layer_index>"
-  # (e.g. "t2m_1".."t2m_240"), each variable keeping its own time axis
-  # in the same order -- same pattern as section 5's single-variable case.
   extract_var <- function(r, prefix) {
     rv <- r[[grep(paste0('^', prefix, '_'), names(r))]]
     vals <- terra::extract(rv, pts)
@@ -861,8 +702,6 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
   meteo <- extract_var(r, 't2m') |>
     inner_join(extract_var(r, 'd2m'), by = c('code_micro', 'ano', 'mes'))
 
-  # Magnus-Tetens approximation for relative humidity from temperature
-  # and dewpoint (both in Kelvin here, converted to Celsius for the formula).
   meteo <- meteo |>
     mutate(
       t_c = t2m - 273.15,
@@ -895,38 +734,6 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
   rm(cdsapirc, cds_key, r, cent, pts, extract_var, meteo, temp_df, rhum_df)
 }
 
-
-# ===========================================================================
-# SECTION 7: Health facilities (CNES, DATASUS)
-#
-# One December snapshot per year per state (the ST/Estabelecimentos
-# table), not every month -- facility counts move slowly, matching the
-# annual cadence of deforestation. Real microregion grain: each
-# establishment carries its own municipality code (CODUFMUN), joined
-# to microregion via the same municipios_codigos.csv crosswalk used
-# elsewhere, then summed -- not limited to state grain like
-# deforestation.
-#
-# The archive's historical files start 2005-08, so 2003-2004 have no
-# source here at all (left absent, unlike deforestation's 2001-2002
-# backfill -- there's no earlier secondary source to fall back to).
-#
-# The host resolves over HTTP(S) too, but only actually serves files
-# over the FTP protocol -- an https://ftp.datasus.gov.br/... URL
-# connects and hangs, it isn't a dead host or a redirect.
-#
-# TP_UNID (facility type) has no field documentation that parses
-# reliably, so codes are identified empirically here, from real
-# facility names sampled via apidadosabertos.saude.gov.br's REST API
-# (which exposes nome_fantasia + codigo_tipo_unidade together -- the
-# ST table itself has no name field). Kept as raw counts per code,
-# unfiltered: which ones matter is a question for the EDA/model
-# iteration scripts, not this one. Some identified while building
-# this: 01/02 posto de saude/UBS, 05/07 hospital, 22 consultorio
-# isolado (private), 32 unidade fluvel/movel de saude (riverine), 40
-# unidade movel terrestre, 50 vigilancia em saude (includes
-# entomological surveillance), 72 saude indigena (CASAI etc).
-# ===========================================================================
 
 CNES_OUT <- 'data/support_data/cnes_df.csv'
 

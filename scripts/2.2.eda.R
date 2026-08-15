@@ -1,35 +1,3 @@
-#-------------------------------------------------------------------------
-# 2.2.eda.R
-#
-# Covariate exploration: does deforestation/precip/temp/humidity carry
-# signal? Reads 1.data_wrangling.R's panel, ano <= 2020 throughout.
-#
-# Two separate questions:
-#   1. In-time: does a covariate explain case rate using its
-#      same-period value, once microregion/time are controlled for?
-#   2. Realistic-lag: same question, using only covariate values that
-#      would actually be available at prediction time (ERA5 lag 1
-#      month, deforestation lag 2 years -- see 0.download_data.R).
-#
-# Sections: 1) correlation (temporal + spatial), 1b) trend/seasonal/
-# remainder decomposition, 2) in-time GLM, 3) realistic-lag predictive
-# GLM (train < 2018 / test 2018-2020). Correlations and decompositions
-# use rate (cases per 100k), not raw counts -- microregions vary too
-# much in population for a raw-count correlation to mean anything
-# comparable across them. CNES (health facilities) EDA lives in
-# 2.1.eda.R, not here -- it grew out of that script's chronic-hotspot
-# question, not this one's covariate-signal question.
-#
-# Sections 2-3 share a mean structure that mirrors the paper's Bell
-# model: microregion fixed effect (stand-in for bym2), natural spline
-# in ano (stand-in for rw1 trend, and able to extrapolate into unseen
-# test years unlike factor(ano)), factor(mes) seasonality.
-#
-# No figures here -- tables only (results/eda/*.csv). The figures this
-# file used to produce were cut; 2.1.eda.R still has the spatial/
-# trend/seasonality/hotspot ones.
-#-------------------------------------------------------------------------
-
 library(dplyr)
 library(readr)
 library(tidyr)
@@ -59,14 +27,6 @@ rm(micro_reg_v, micro_reg_f)
 
 COVARIATES <- c('defor_lag2', 'precip_mm', 'temp', 'rhum')
 
-
-# ===========================================================================
-# SECTION 1: Covariate vs. case rate -- deforestation lag comparison
-#
-# Same-year deforestation could never actually be used as a predictor
-# (PRODES publishes with a lag) -- this is how much signal is given up
-# by using the lag that's actually available.
-# ===========================================================================
 
 corr_defor_comparacao <- panel |>
   group_by(especie, codMicroRes) |>
@@ -99,21 +59,6 @@ message(
 )
 print(resumo_defor_lag)
 
-
-# ===========================================================================
-# SECTION 1b: Trend/seasonal/remainder decomposition
-#
-# Raw correlation conflates shared trend, shared seasonality, and
-# genuine short-term covariation. stats::decompose() (additive,
-# frequency=12) separates them, per microregion, summarized by the
-# median -- an aggregate decomposition would hide microregion-level
-# heterogeneity the same way an aggregate correlation would.
-#
-# defor_lag2's "seasonal" component is a decomposition artifact, not
-# real signal: PRODES is annual (a step function, not smooth), and
-# decompose()'s moving-average trend misreads the step's residual as
-# seasonality. Excluded from the summary below for that reason.
-# ===========================================================================
 
 to_decomp <- function(x) {
   decompose(
@@ -203,15 +148,6 @@ rm(
 )
 
 
-# ===========================================================================
-# SECTION 2: In-time explanatory power (GLM)
-#
-# Same-period covariate value, fit on all of ano <= 2020 (no split --
-# that's section 3). Z-scored so rate ratios mean "effect of a 1-SD
-# change," comparable across covariates. Reports rate ratios (95% CI)
-# and deviance explained vs. the same structure without covariates.
-# ===========================================================================
-
 library(splines)
 
 panel_z <- panel |>
@@ -279,20 +215,6 @@ lrt_resultados |> write_csv('results/eda/covariates_intime_deviance.csv')
 rm(panel_z, fit_intime, fits_intime, rate_ratios, lrt_resultados)
 
 
-# ===========================================================================
-# SECTION 2b: In-time explanatory power -- CNES candidates
-#
-# All 45 CNES covariates in one joint model is unstable (severe
-# multicollinearity between facility counts -- 2.1.eda.R's own attempt
-# at a joint model needed dispersion-corrected SEs and still barely
-# converged). Tested one at a time instead, against the same base
-# structure as section 2, restricted to the 17 that cleared
-# |cor_transversal| > 0.2 in 2.1.eda.R section 5's screening -- the
-# question here is "does this ONE facility type explain anything on
-# its own," not "which combination is best." ano >= 2005 (no CNES
-# source before that).
-# ===========================================================================
-
 ESPECIES <- c('P. vivax', 'P. falciparum')
 CNES_PATTERN <- '^n_(estabelecimentos|vinc_sus|atendamb|atendhos|urgemerg|tp_)'
 CNES_SHORTLIST <- c(
@@ -353,28 +275,10 @@ rate_ratios_cnes |> write_csv('results/eda/cnes_intime_rate_ratios.csv')
 rm(ESPECIES, panel_cnes_z, fit_base_only, bases_cnes, rate_ratios_cnes)
 
 
-# ===========================================================================
-# SECTION 3: Realistic-lag predictive power (GLM, train/test)
-#
-# Same structure as section 2, covariates re-lagged to values actually
-# available at prediction time (ERA5 lag 1 month). Trained on ano < 2018,
-# tested on 2018-2020. Scored with scripts/loss_functions.R, same rate
-# scale as the paper's own reported metrics -- rough reference, not a
-# strict head-to-head (the paper's test window isn't necessarily
-# 2018-2020).
-# ===========================================================================
-
 source('scripts/loss_functions.R')
 
 N_POSTERIOR_SAMPLES <- 300
 
-# Frequentist analog of 2.3.model_iteration.R's inla.posterior.sample()
-# use: samples the linear predictor from its asymptotic-normal sampling
-# distribution (predict.glm's se.fit, i.e. parameter uncertainty), then
-# simulates one new Poisson observation per draw (observation noise) --
-# same two layers of uncertainty the INLA posterior predictive
-# combines, just via the GLM's own asymptotics instead of a real
-# posterior.
 predictive_interval_poisson <- function(fit, newdata, pop) {
   pr <- predict(fit, newdata, type = 'link', se.fit = TRUE)
   eta_samples <- vapply(
@@ -433,7 +337,6 @@ fit_predictive <- function(especie_alvo) {
     rmsle = c(rmsle(real, pred_base), rmsle(real, pred_full)),
     rse = c(rse(real, pred_base), rse(real, pred_full)),
     cor = c(cor(real, pred_base), cor(real, pred_full)),
-    # Should sit near 0.95 if honest.
     coverage_95 = c(
       mean(real >= ci_base$ci_low & real <= ci_base$ci_high),
       mean(real >= ci_full$ci_low & real <= ci_full$ci_high)
@@ -460,11 +363,11 @@ message(
   'For reference, the paper\'s own test-set metrics (different test window):'
 )
 print(read_csv(
-  'results/test_metrics_microrregion_vivax.csv',
+  'results/legacy/test_metrics_microrregion_vivax.csv',
   show_col_types = FALSE
 ))
 print(read_csv(
-  'results/test_metrics_microrregion_falciparum.csv',
+  'results/legacy/test_metrics_microrregion_falciparum.csv',
   show_col_types = FALSE
 ))
 
@@ -475,20 +378,6 @@ rm(
   fit_predictive, resultados_preditivos
 )
 
-
-# ===========================================================================
-# SECTION 3b: Realistic-lag predictive power -- CNES candidates
-#
-# Same 17-covariate shortlist as section 2b, one at a time, same
-# train < 2018 / test 2018-2020 split -- but CNES needs its own lag,
-# distinct from ERA5's. 1.data_wrangling.R joins CNES by (microregion,
-# ano) alone, so a given year's December snapshot is attached to that
-# SAME year's January through November too -- eleven of those twelve
-# months come before the snapshot exists. Lagged here by 12 months
-# (one full year) on the monthly panel, so ano X uses ano X-1's
-# snapshot throughout -- the same realism fix section 3 applies to
-# ERA5/deforestation, just not caught for CNES until now.
-# ===========================================================================
 
 panel_cnes_lagged <- panel |>
   arrange(codMicroRes, idMes) |>

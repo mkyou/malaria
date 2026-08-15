@@ -25,4 +25,3 @@ nrmse = function(real, pred){
 rmsle = function(real, pred){
   sqrt(mean((log(real + 1) - log(pred + 1))^2))
 }
-

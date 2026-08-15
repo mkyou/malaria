@@ -6,13 +6,13 @@ library(INLA)
 inla.setOption(num.threads = '2:1')
 source('scripts/loss_functions.R')
 
-dir.create('results/model_iteration/models', recursive = TRUE, showWarnings = FALSE)
+dir.create(
+  'results/family_comparison/models', recursive = TRUE, showWarnings = FALSE
+)
 
-MICRO_PATH <- 'outputs/micro_map.graph'
 N_POSTERIOR_SAMPLES <- 300
 VIVAX <- 'P. vivax'
 FALCIPARUM <- 'P. falciparum'
-
 IDMES_HOLDOUT <- 217
 
 micro_v <- read_csv(
@@ -26,7 +26,6 @@ micro_v <- read_csv(
   ungroup() |>
   mutate(
     idAno = ano - min(ano) + 1L,
-    idInteraction = as.numeric(interaction(idArea, idMes)),
     idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes
   )
 micro_f <- read_csv(
@@ -40,12 +39,10 @@ micro_f <- read_csv(
   ungroup() |>
   mutate(
     idAno = ano - min(ano) + 1L,
-    idInteraction = as.numeric(interaction(idArea, idMes)),
     idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes
   )
 
 COVARIATES <- c('defor_lag2', 'precip_mm', 'temp', 'rhum', 'n_tp_73', 'n_tp_81')
-
 A_MONTH_CONSTR <- matrix(1, nrow = 1, ncol = length(unique(micro_v$idArea3)))
 
 build_folds <- function(test_start_min, test_end_max, horizon, step) {
@@ -58,39 +55,21 @@ build_folds <- function(test_start_min, test_end_max, horizon, step) {
     list(test_start = s, test_end = min(s + horizon - 1, test_end_max))
   })
 }
+FOLDS_STANDARD <- build_folds(109, 216, horizon = 3, step = 3)
 
-lambert_w0 <- function(x, tol = 1e-10, max_iter = 100) {
-  w <- ifelse(x < 1, x, log(x))
-  w[x <= 0] <- 0
-  for (i in seq_len(max_iter)) {
-    ew <- exp(w)
-    wew <- w * ew
-    denom <- ew * (w + 1) - (w + 2) * (wew - x) / (2 * w + 2)
-    w_new <- w - (wew - x) / denom
-    if (max(abs(w_new - w), na.rm = TRUE) < tol) return(w_new)
-    w <- w_new
-  }
-  w
-}
+RETRY_LOG_PATH <- 'results/family_comparison/models/retry_log.csv'
 
-simulate_bell <- function(mu) {
-  theta <- lambert_w0(mu)
-  variancia <- mu * (1 + theta)
-  pmax(0, round(rnorm(length(mu), mean = mu, sd = sqrt(variancia))))
-}
-
-RETRY_LOG_PATH <- 'results/model_iteration/models/retry_log.csv'
-
-log_retry <- function(label, especie, test_start, motivo, detalhe) {
+log_retry <- function(familia, modelo, especie, test_start, motivo, detalhe) {
   row <- tibble(
-    timestamp = as.character(Sys.time()), familia = 'bell', modelo = label,
+    timestamp = as.character(Sys.time()), familia = familia, modelo = modelo,
     especie = especie, test_start = test_start, motivo = motivo, detalhe = detalhe
   )
   write_csv(row, RETRY_LOG_PATH, append = file.exists(RETRY_LOG_PATH))
 }
 
 run_fold <- function(
-  df, fold, formula, label, especie, int_strategy = 'eb', previous_fit = NULL
+  df, fold, formula, family, label, especie, int_strategy = 'eb',
+  previous_fit = NULL
 ) {
   d <- df |> filter(idMes <= fold$test_end)
   test_rows <- d$idMes >= fold$test_start & d$idMes <= fold$test_end
@@ -122,7 +101,7 @@ run_fold <- function(
     }
     t0 <- Sys.time()
     fit <- inla(
-      formula = formula_fold, family = 'bell', data = d,
+      formula = formula_fold, family = family, data = d,
       working.directory = tempdir(),
       control.predictor = list(compute = TRUE, link = 1),
       control.compute = list(dic = TRUE, waic = TRUE, config = TRUE),
@@ -144,7 +123,22 @@ run_fold <- function(
       numeric(length(test_idx))
     )
     mu_samples <- exp(eta_samples)
-    sim <- apply(mu_samples, 2, simulate_bell) / pop_test * 1e5
+
+    sim <- if (family == 'nbinomial') {
+      size_samples <- vapply(
+        samples,
+        function(s) s$hyperpar[['size for the nbinomial observations (1/overdispersion)']],
+        numeric(1)
+      )
+      sim_raw <- vapply(
+        seq_len(ncol(mu_samples)),
+        function(j) rnbinom(nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]),
+        numeric(nrow(mu_samples))
+      )
+      sim_raw / pop_test * 1e5
+    } else {
+      apply(mu_samples, 2, function(mu) rpois(length(mu), lambda = mu)) / pop_test * 1e5
+    }
     ci_low <- apply(sim, 1, quantile, probs = 0.025)
     ci_high <- apply(sim, 1, quantile, probs = 0.975)
 
@@ -173,7 +167,7 @@ run_fold <- function(
       message(sprintf(
         '  [warn] warm-started fit failed (%s) -- retrying cold', conditionMessage(e)
       ))
-      log_retry(label, especie, fold$test_start, 'crash', conditionMessage(e))
+      log_retry(family, label, especie, fold$test_start, 'crash', conditionMessage(e))
       fit_and_score(use_warm_start = FALSE)
     }
   )
@@ -183,7 +177,7 @@ run_fold <- function(
       out$metrics$rse, out$metrics$cor
     ))
     log_retry(
-      label, especie, fold$test_start, 'degenerate',
+      family, label, especie, fold$test_start, 'degenerate',
       sprintf('rse=%.2f cor=%.2f', out$metrics$rse, out$metrics$cor)
     )
     out <- fit_and_score(use_warm_start = FALSE)
@@ -192,7 +186,7 @@ run_fold <- function(
 }
 
 run_cv <- function(
-  df, folds, especie, formula, label, out_path, int_strategy = 'eb'
+  df, folds, especie, formula, family, label, out_path, int_strategy = 'eb'
 ) {
   done <- if (file.exists(out_path)) {
     read_csv(out_path, show_col_types = FALSE)
@@ -218,11 +212,11 @@ run_cv <- function(
   previous_fit <- NULL
   for (fold in remaining) {
     out <- run_fold(
-      df, fold, formula, label, especie,
+      df, fold, formula, family, label, especie,
       int_strategy = int_strategy, previous_fit = previous_fit
     )
     row <- out$metrics |>
-      mutate(especie = especie, familia = 'bell', modelo = label, .before = 1)
+      mutate(especie = especie, familia = family, modelo = label, .before = 1)
     write_csv(row, out_path, append = file.exists(out_path))
     previous_fit <- out$fit
     message(sprintf(
@@ -233,50 +227,22 @@ run_cv <- function(
   invisible(NULL)
 }
 
-FOLDS_STANDARD <- build_folds(109, 216, horizon = 3, step = 3)
-
 run_model <- function(
-  label, formula, folds = FOLDS_STANDARD, int_strategy = 'eb'
+  label, formula, family, folds = FOLDS_STANDARD, int_strategy = 'eb',
+  path_suffix = ''
 ) {
-  out_path <- sprintf('results/model_iteration/models/%s.csv', label)
+  out_path <- sprintf(
+    'results/family_comparison/models/%s_%s%s.csv', family, label, path_suffix
+  )
   formula_v <- if (is.list(formula)) formula$vivax else formula
   formula_f <- if (is.list(formula)) formula$falciparum else formula
-  run_cv(micro_v, folds, VIVAX, formula_v, label, out_path, int_strategy)
-  run_cv(micro_f, folds, FALCIPARUM, formula_f, label, out_path, int_strategy)
+  run_cv(micro_v, folds, VIVAX, formula_v, family, label, out_path, int_strategy)
+  run_cv(micro_f, folds, FALCIPARUM, formula_f, family, label, out_path, int_strategy)
   read_csv(out_path, show_col_types = FALSE)
 }
 
 
-formula_model0 <- numCasos ~ offset(log(populacao))
-resultados_model0 <- run_model('model0_intercept', formula_model0)
-
-message('Model 0 -- intercept only, Bell, standard folds:')
-print(resultados_model0, width = Inf, n = Inf)
-
-
-formula_model1 <- numCasos ~
-  f(idArea, model = 'iid', group = idAno, control.group = list(model = 'ar1')) +
-  offset(log(populacao))
-resultados_model1 <- run_model(
-  'model1_iid_ar1_ano', formula_model1
-)
-
-message('Model 1 -- iid space x ar1 time (grouped by year), standard folds:')
-print(resultados_model1, width = Inf, n = Inf)
-
-formula_model2 <- numCasos ~
-  f(idArea, model = 'bym2', graph = MICRO_PATH, group = idAno,
-    control.group = list(model = 'ar1')) +
-  offset(log(populacao))
-resultados_model2 <- run_model(
-  'model2_bym2_ar1_ano', formula_model2
-)
-
-message('Model 2 -- bym2 space x ar1 time (grouped by year), standard folds:')
-print(resultados_model2, width = Inf, n = Inf)
-
-
-formula_model3 <- numCasos ~
+formula_backbone <- numCasos ~
   f(idArea, model = 'iid') +
   f(idAno, model = 'ar1') +
   f(mes, model = 'rw2', constr = TRUE, cyclic = TRUE) +
@@ -286,98 +252,61 @@ formula_model3 <- numCasos ~
     control.group = list(model = 'rw2', cyclic = TRUE, scale.model = FALSE),
     extraconstr = list(A = A_MONTH_CONSTR, e = 0)) +
   offset(log(populacao))
-resultados_model3 <- run_model(
-  'model3_separated_iid', formula_model3
-)
-
-message('Model 3 -- separated main effects + year/month interactions, iid:')
-print(resultados_model3, width = Inf, n = Inf)
-
-
-formula_model4 <- update(
-  formula_model3, . ~ . + defor_lag2_z + precip_mm_z + temp_z + rhum_z
-)
-resultados_model4 <- run_model(
-  'model4_covariates', formula_model4
-)
-
-message('Model 4 -- Model 3 + defor/precip/temp/rhum, flat fixed effects:')
-print(resultados_model4, width = Inf, n = Inf)
 
 
 formula_model5 <- update(
-  formula_model3,
+  formula_backbone,
   . ~ . + defor_lag2_ns1 + defor_lag2_ns2 + defor_lag2_ns3 +
     precip_mm_z + temp_z + rhum_z
 )
-resultados_model5 <- run_model(
-  'model5_defor_ns', formula_model5
+formula_model6 <- list(
+  vivax = update(formula_model5, . ~ . + n_tp_81_z),
+  falciparum = update(formula_model5, . ~ . + n_tp_73_z)
 )
 
-message('Model 5 -- Model 4, defor_lag2 as ns(df=3) instead of linear:')
-print(resultados_model5, width = Inf, n = Inf)
+FAMILIES <- c('poisson', 'nbinomial')
+
+resultados <- list()
+for (fam in FAMILIES) {
+  message(sprintf('\n=== %s: model5 (shared formula) ===', fam))
+  resultados[[paste0(fam, '_model5')]] <- run_model(
+    'model5', formula_model5, fam
+  )
+  print(resultados[[paste0(fam, '_model5')]], width = Inf, n = Inf)
+
+  message(sprintf('\n=== %s: model6 (+ species-specific CNES) ===', fam))
+  resultados[[paste0(fam, '_model6')]] <- run_model(
+    'model6', formula_model6, fam
+  )
+  print(resultados[[paste0(fam, '_model6')]], width = Inf, n = Inf)
+}
 
 
 FOLDS_ANNUAL <- build_folds(109, 216, horizon = 12, step = 12)
-resultados_model5_annual <- run_model(
-  'model5_defor_ns_annual', formula_model5, folds = FOLDS_ANNUAL
-)
 
-message('Model 5, annual regime:')
-print(resultados_model5_annual, width = Inf, n = Inf)
+for (fam in FAMILIES) {
+  message(sprintf('\n=== %s: model5, annual regime ===', fam))
+  resultados[[paste0(fam, '_model5_annual')]] <- run_model(
+    'model5', formula_model5, fam, folds = FOLDS_ANNUAL, path_suffix = '_annual'
+  )
+  print(resultados[[paste0(fam, '_model5_annual')]], width = Inf, n = Inf)
 
-
-formula_model6_vivax <- update(formula_model5, . ~ . + n_tp_81_z)
-formula_model6_falciparum <- update(formula_model5, . ~ . + n_tp_73_z)
-formula_model6 <- list(
-  vivax = formula_model6_vivax, falciparum = formula_model6_falciparum
-)
-resultados_model6 <- run_model(
-  'model6_cnes', formula_model6
-)
-
-message('Model 6 (final) -- Model 5 + species-specific CNES covariate:')
-print(resultados_model6, width = Inf, n = Inf)
+  message(sprintf('\n=== %s: model6, annual regime ===', fam))
+  resultados[[paste0(fam, '_model6_annual')]] <- run_model(
+    'model6', formula_model6, fam, folds = FOLDS_ANNUAL, path_suffix = '_annual'
+  )
+  print(resultados[[paste0(fam, '_model6_annual')]], width = Inf, n = Inf)
+}
 
 
-formula_paper_vivax <- numCasos ~
-  f(mes, model = 'rw2', constr = TRUE, cyclic = TRUE) +
-  f(ano, model = 'rw1', constr = TRUE) +
-  f(idArea, model = 'bym2', graph = MICRO_PATH) +
-  f(idMes, model = 'rw1') +
-  f(idInteraction, model = 'iid') +
-  offset(log(populacao))
+BEST_MODELS_OUT <- 'results/best_models.csv'
 
-formula_paper_falciparum <- numCasos ~
-  f(mes, model = 'rw2', constr = TRUE, cyclic = TRUE) +
-  f(ano, model = 'rw1', constr = TRUE) +
-  f(idArea, model = 'bym2', graph = MICRO_PATH) +
-  f(idMes, model = 'rw1') +
-  rhum + temp +
-  offset(log(populacao))
-
-formula_paper_replica <- list(
-  vivax = formula_paper_vivax, falciparum = formula_paper_falciparum
-)
-
-resultados_paper_replica <- run_model(
-  'paper_best_replica', formula_paper_replica
-)
-
-message('Paper replica -- paper\'s own best formula, standard folds:')
-print(resultados_paper_replica, width = Inf, n = Inf)
-
-
-ITERATION_METRICS_OUT <- 'results/model_iteration/iteration_metrics.csv'
-
-if (file.exists(ITERATION_METRICS_OUT)) {
-  message(sprintf(
-    '[skip] iteration_metrics: %s already exists', ITERATION_METRICS_OUT
-  ))
-  iteration_metrics <- read_csv(ITERATION_METRICS_OUT, show_col_types = FALSE)
+if (file.exists(BEST_MODELS_OUT)) {
+  message(sprintf('[skip] best_models: %s already exists', BEST_MODELS_OUT))
+  best_models <- read_csv(BEST_MODELS_OUT, show_col_types = FALSE)
 } else {
-  summarise_cv <- function(resultados, label) {
-    resultados |>
+  summarise_cv <- function(res, familia, modelo) {
+    res |>
       group_by(especie) |>
       summarise(
         dic = median(dic), mbe = median(mbe), nrmse = median(nrmse),
@@ -386,36 +315,34 @@ if (file.exists(ITERATION_METRICS_OUT)) {
         largura_95 = median(largura_95),
         fit_time_sec = median(fit_time_sec), .groups = 'drop'
       ) |>
-      mutate(baseline = label, .before = 1)
+      mutate(familia = familia, modelo = modelo, .before = 1)
   }
 
-  glm_baseline <- summarise_cv(
-    read_csv(
-      'results/model_iteration/models/glm_sem_covariaveis.csv',
-      show_col_types = FALSE
-    ),
-    'glm_sem_covariaveis'
-  )
+  pick_best <- function(res5, res6, familia) {
+    s5 <- summarise_cv(res5, familia, 'model5')
+    s6 <- summarise_cv(res6, familia, 'model6')
+    bind_rows(s5, s6) |>
+      group_by(especie) |>
+      slice_min(rse, n = 1, with_ties = FALSE) |>
+      ungroup()
+  }
 
-  model0_baseline <- summarise_cv(resultados_model0, 'model0_intercept')
-  model1_baseline <- summarise_cv(resultados_model1, 'model1_iid_ar1_ano')
-  model2_baseline <- summarise_cv(resultados_model2, 'model2_bym2_ar1_ano')
-  model3_baseline <- summarise_cv(resultados_model3, 'model3_separated_iid')
-  model4_baseline <- summarise_cv(resultados_model4, 'model4_covariates')
-  model5_baseline <- summarise_cv(resultados_model5, 'model5_defor_ns')
-  model6_baseline <- summarise_cv(resultados_model6, 'model6_cnes')
-  paper_replica_baseline <- summarise_cv(
-    resultados_paper_replica, 'paper_best_replica'
-  )
-
-  iteration_metrics <- bind_rows(
-    glm_baseline, model0_baseline,
-    model1_baseline, model2_baseline, model3_baseline, model4_baseline,
-    model5_baseline, model6_baseline, paper_replica_baseline
+  bell_best <- read_csv(
+    'results/model_iteration/models/model5_defor_ns.csv', show_col_types = FALSE
   ) |>
-    relocate(baseline, especie)
-  write_csv(iteration_metrics, ITERATION_METRICS_OUT)
+    summarise_cv('bell', 'model5')
+
+  poisson_best <- pick_best(
+    resultados$poisson_model5, resultados$poisson_model6, 'poisson'
+  )
+  nbinomial_best <- pick_best(
+    resultados$nbinomial_model5, resultados$nbinomial_model6, 'nbinomial'
+  )
+
+  best_models <- bind_rows(bell_best, poisson_best, nbinomial_best) |>
+    relocate(familia, especie, modelo)
+  write_csv(best_models, BEST_MODELS_OUT)
 }
 
-message('Iteration metrics, long format:')
-print(iteration_metrics, width = Inf, n = Inf)
+message('\nBest model per distribution family:')
+print(best_models, width = Inf, n = Inf)
