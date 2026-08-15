@@ -1,0 +1,7 @@
+horizonte,especie,n_valido,n_zero_incidencia,modelo_vence,ma12_vence,pct_modelo_vence
+3 months,P. falciparum,85,22,55,30,65
+3 months,P. vivax,101,6,54,47,53
+1 year,P. falciparum,85,22,52,33,61
+1 year,P. vivax,101,6,47,54,47
+2 years (full holdout),P. falciparum,85,22,44,41,52
+2 years (full holdout),P. vivax,101,6,46,55,46

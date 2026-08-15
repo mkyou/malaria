@@ -43,18 +43,25 @@ painel <- bind_rows(
 ) |>
   select(especie, codMicroRes, idMes, numCasos, populacao)
 
-hist_baseline <- bind_rows(lapply(sort(unique(residuos$test_start)), function(ts) {
-  painel |>
-    filter(idMes < ts) |>
-    group_by(especie, codMicroRes) |>
-    summarise(
-      hist_mean = sum(numCasos) / sum(populacao) * 1e5, .groups = 'drop'
-    ) |>
-    mutate(test_start = ts)
-}))
+build_baseline <- function(window = NULL) {
+  bind_rows(lapply(sort(unique(residuos$test_start)), function(ts) {
+    lo <- if (is.null(window)) 1 else max(1, ts - window)
+    painel |>
+      filter(idMes >= lo, idMes < ts) |>
+      group_by(especie, codMicroRes) |>
+      summarise(
+        baseline_mean = sum(numCasos) / sum(populacao) * 1e5, .groups = 'drop'
+      ) |>
+      mutate(test_start = ts)
+  }))
+}
+
+hist_baseline <- build_baseline() |> rename(hist_mean = baseline_mean)
+ma12_baseline <- build_baseline(window = 12) |> rename(ma12_mean = baseline_mean)
 
 residuos <- residuos |>
-  left_join(hist_baseline, by = c('especie', 'codMicroRes', 'test_start'))
+  left_join(hist_baseline, by = c('especie', 'codMicroRes', 'test_start')) |>
+  left_join(ma12_baseline, by = c('especie', 'codMicroRes', 'test_start'))
 
 
 erros <- residuos |>
@@ -71,9 +78,9 @@ RSE_SCALE <- scale_fill_gradient2(
   name = 'RSE vs. area\'s\nown historical\nrate (1 = ties it,\ncapped at 2)'
 )
 
-plot_error_map <- function(metric, out_file, fill_scale) {
+plot_error_map <- function(data, metric, out_file, fill_scale) {
   p <- micro_sf |>
-    inner_join(erros, by = c('code_micro' = 'codMicroRes')) |>
+    inner_join(data, by = c('code_micro' = 'codMicroRes')) |>
     ggplot() +
     geom_sf(aes(fill = .data[[metric]]), color = 'black', linewidth = .1) +
     fill_scale +
@@ -82,14 +89,44 @@ plot_error_map <- function(metric, out_file, fill_scale) {
   ggsave(out_file, p, width = 8.27, height = 9.5, device = agg_png)
 }
 
-plot_error_map('rse', 'results/holdout/maps/map_errors_rse.png', RSE_SCALE)
+plot_error_map(erros, 'rse', 'results/holdout/maps/map_errors_rse.png', RSE_SCALE)
 plot_error_map(
-  'rmsle', 'results/holdout/maps/map_errors_rmsle.png',
+  erros, 'rmsle', 'results/holdout/maps/map_errors_rmsle.png',
   scale_fill_gradientn(
     colours = RATE_GRADIENT, limits = c(0, 2), oob = scales::squish,
     name = 'RMSLE\n(capped at 2)'
   )
 )
+
+erros_ma12 <- residuos |>
+  group_by(especie, horizonte, codMicroRes) |>
+  summarise(
+    denom = sum((real_taxa - ma12_mean)^2),
+    rse = sum((real_taxa - pred_taxa)^2) / denom,
+    .groups = 'drop'
+  ) |>
+  mutate(rse = if_else(denom == 0, NA_real_, rse))
+
+plot_error_map(
+  erros_ma12, 'rse', 'results/holdout/maps/map_errors_rse_vs_ma12.png',
+  scale_fill_gradient2(
+    low = '#2166ac', mid = '#f7f7f7', high = '#b2182b', midpoint = 1,
+    limits = c(0, 2), oob = scales::squish, na.value = 'grey60',
+    name = 'RSE vs. area\'s\nown trailing\n12-month average\n(1 = ties it,\ncapped at 2,\ngrey = zero cases\nin reference window)'
+  )
+)
+
+resumo_ma12 <- erros_ma12 |>
+  group_by(horizonte, especie) |>
+  summarise(
+    n_valido = sum(!is.na(rse)),
+    n_zero_incidencia = sum(is.na(rse)),
+    modelo_vence = sum(rse < 1, na.rm = TRUE),
+    ma12_vence = sum(rse >= 1, na.rm = TRUE),
+    pct_modelo_vence = round(100 * mean(rse < 1, na.rm = TRUE)),
+    .groups = 'drop'
+  )
+write_csv(resumo_ma12, 'results/holdout/rse_vs_ma12_summary.csv')
 
 
 erros_ano <- residuos |>
