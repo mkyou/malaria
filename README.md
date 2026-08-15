@@ -1,346 +1,353 @@
-# malaria
+# Malaria in the Brazilian Legal Amazon — Bayesian space-time modeling
 
-Spatio-temporal analysis of malaria case counts across the micro-regions of
-the Brazilian Legal Amazon. Bayesian hierarchical models are fit with INLA,
-combining a spatial component, temporal components, and a space–time
-interaction term. Both *P. vivax* and *P. falciparum* are modelled
-separately, with one set of scripts per species.
-
-## Data
-
-The malaria notification data **are not bundled with the repository**.
-They are fetched on demand by `scripts/0.download_data.R` from the public
-release (CC BY 4.0) hosted on Mendeley Data:
-
-> Monteiro, K., Silva Rocha, É. da, Rogério, S., Carvalho Maia, L. de,
-> Peterka, C., Sampaio, V., Dourado, R., Lynn, T., & Endo, P. T. (2023).
-> *Legal Amazon malaria notification records, Brazil, 2003–2022* (v2).
-> Mendeley Data. https://doi.org/10.17632/9n6b97fsbd.2
-
-The download script pulls the dataset from a pinned version, verifies its
-SHA-256 checksum, restricts to the years used by the current analysis
-(`YEAR_START`/`YEAR_END` in `0.download_data.R`, currently 2003–2022 — the
-Mendeley v2 release covers the full range, we just weren't using all of it
-before), splits records into species by test code, and aggregates to the
-(municipality, month) grain expected by the downstream wrangling scripts.
-
-If Mendeley issues a new version and the `file_id` changes, resolve the new
-identifier from the DOI page and update `DATASET_URL` in the script.
-
-### Support data (`data/support_data/`)
-
-All data acquisition — malaria notifications and the support
-covariates below — lives in `0.download_data.R`, organized into
-numbered sections. Each section is idempotent: it checks for its own
-output file under `data/` and skips the fetch if already present, so
-re-running the script after a partial run doesn't redo completed work.
-Run the whole script to regenerate anything; there's no per-covariate
-script anymore.
-
-| File | Section | Source | Coverage |
-|---|---|---|---|
-| `populacao_df.csv` | 2 | IBGE SIDRA API (tables 6579 annual estimates, 793 2007 count, 200 Census 2010, 4709 Census 2022) — primary source, queried directly | 2003–2022, 807 municipalities |
-| `deforestation_df.csv` | 4 | PRODES/TerraBrasilis annual rate for the Legal Amazon, national aggregate, 2-year-lagged (see below) | 2003–2022 |
-| `precip_df.csv` | 5 | ERA5 monthly-averaged reanalysis, `total_precipitation`, Copernicus Climate Data Store — primary source, direct API pull | 2003–2022, per microregion centroid |
-| `rhum_df.csv`, `temp_df.csv` | 6 | ERA5 monthly-averaged reanalysis (`2m_temperature`, `2m_dewpoint_temperature`), Copernicus Climate Data Store; relative humidity derived via Magnus-Tetens | 2003–2022, per microregion centroid |
-
-**Vegetation index (NDVI) was tried and dropped.** MODIS/Terra NDVI
-(MOD13Q1, ORNL DAAC) had its own section, fetching one microregion at
-a time with retry/timeout/resumable caching, but ORNL DAAC was too
-slow/unresponsive to reliably complete a pull, and testing surfaced a
-libcurl-level timeout that bypassed the retry logic and crashed the
-whole script. Not worth continuing to fight an unreliable external
-service for a covariate whose case was only partial to begin with:
-NDVI overlaps conceptually with deforestation (both proxy land-cover
-change) — PRODES measures clear-cut directly, NDVI is a noisier
-indirect greenness signal also driven by seasonality, degradation, and
-agriculture, not just clearing. The section has been removed from
-`0.download_data.R`; `ndvi_df.csv` is no longer produced or joined in
-`1.data_wrangling.R`.
-
-**Deforestation caveat:** Section 4 tries TerraBrasilis's WFS first
-(`prodes-legal-amz:yearly_deforestation`, summed by year — the actual
-primary source), but that server is flaky (frequent 502s), so any year
-that fails after retries silently falls back to a secondary-sourced
-value (Wikipedia's PRODES table, cross-checked against INPE
-press-release text surfaced via web search) and logs a loud warning
-naming which years fell back. Check that warning before trusting
-`deforestation_df.csv$source` — a row marked `secondary_unverified`
-should not go into the manuscript as-is; re-run section 4 later to try
-upgrading it to `primary_wfs`.
-
-**ERA5 (rainfall) requires a Copernicus CDS API key** in `~/.cdsapirc`:
-```
-url: https://cds.climate.copernicus.eu/api
-key: <your key>
-```
-Register at https://cds.climate.copernicus.eu. Section 5 makes one
-request for the whole Legal Amazon bounding box and time range (not
-one per region — much cheaper), then extracts values locally at each
-microregion's centroid.
-
-Microregion centroids (`data/spatial_data/micro_centroids.csv`, built
-in section 3, shared by sections 5 and 6) are computed with
-`sf::st_centroid()` — the real area-weighted centroid, no
-approximation — directly from `data/spatial_data/sph_files/microrreg.shp`,
-a shapefile already versioned in this repo (560 Brazilian microregions,
-confirmed all-valid geometry), filtered to `LEGAL_AMAZON_STATES` (the 9
-Legal Amazon states, also used by section 4), cross-checked against
-`municipios_codigos.csv`'s own microregion-per-state breakdown — both
-give the identical 107 microregions. Filtering by state rather than by
-which microregions appear in the malaria panel is deliberate: it means
-section 3 depends on nothing but the shapefile and
-`municipios_codigos.csv`, not on sections 1-2 having already run. This
-sidesteps `geobr` entirely: IBGE's geoserver (which `geobr` calls) was
-consistently unreachable while this was built, while other IBGE
-endpoints were fine, so the issue looks specific to that one
-geoserver backend rather than IBGE overall — worth retrying `geobr`
-directly another day if a fresher malha territorial is ever needed,
-but there's no dependency on it right now.
-
-(`data/spatial_data/micro_map.csv` is a separate, older file, still
-used elsewhere for its `code_micro` column, but its `geom` column is
-**not valid WKT** — `write_csv()` mangled the `sf` geometry when
-`2.spatial_data_wrangling.R` first produced that file, serializing it
-as deparsed R list text instead. An earlier version of section 3
-recovered coordinates from that mangled text and computed the
-centroid by hand with the shoelace formula; cross-checked against the
-shapefile approach above, the two agreed to within ~0.005 degrees
-(~500m) on average, so that recovery wasn't wrong, just unnecessary
-now that a clean source is available locally.)
-
-### `data/` layout
-
-- `data/main_data/` — *(gitignored)* produced by `0.download_data.R`.
-- `data/output_data/` — *(gitignored)* produced by `1.data_wrangling.R`.
-- `data/support_data/` — versioned: IBGE municipality codes, population,
-  deforestation, precipitation, relative humidity, and temperature —
-  see table above.
-- `data/spatial_data/` — versioned: IBGE shapefiles, derived CSVs, and
-  microregion centroids.
-
-## Methodology
-
-### Modelling units and predictors
-
-Cases are aggregated to **micro-regions** (the spatial unit) and **months**
-(the temporal unit). State-level models (e.g. `scripts/3.state_models/`)
-exist for finer-grained checks but are not part of the main pipeline.
-
-For each cell (micro-region × month), the response is the case count and
-the offset is the log of the resident population. Predictions are
-expressed as case rates per `100000` inhabitants in every script, so that
-models, error metrics, and downstream corrections are directly
-comparable.
-
-### Random-effects structure
-
-All formulas share the same hierarchical backbone:
-
-- a **cyclic RW2** for the within-year month effect (seasonality),
-- a **RW1** for the year effect (long-term trend),
-- a **BYM2** spatial effect over the micro-region adjacency graph, and
-- a **RW1** over a global month index, capturing residual temporal drift.
-
-Two optional ingredients are explored on top of this backbone:
-
-- **Climate covariates** (relative humidity and temperature), entered as
-  linear fixed effects.
-- A **space–time interaction** modelled as IID over the
-  micro-region × month-index product, which absorbs cell-specific shocks
-  that the additive structure cannot.
-
-This yields four candidate formulas (with/without climate covariates ×
-with/without interaction), fit for each likelihood family.
-
-### Likelihood families
-
-Three families are routinely fit and compared: **Poisson**, **negative
-binomial**, and **Bell**. Earlier iterations of the project also fit
-zero-inflated Poisson and zero-inflated negative binomial variants, but
-they did not improve fit relative to their non-inflated counterparts and
-were retired from the pipeline.
-
-### Model selection
-
-The four formulas × three families are evaluated with **DIC** and
-**WAIC**. Per-fit summaries (DIC/WAIC/CPO and fixed-effect posteriors)
-are written to `results/model_selection.csv` by the helper
-`scripts/model_selection_io.R`, so cross-family comparisons can be made
-from one consolidated table. The selected formula per family is then
-used by the "best models" script (`4.best_models_*.R`) to generate the
-test-period predictions consumed by the downstream analysis.
-
-### Train / test split
-
-Years up to and including the cutoff are used as training; the remaining
-years form the held-out test set. The cutoff is identical across all
-scripts (`ano >= 2016` defines the test indices) so that error metrics
-are directly comparable across families and species.
-
-### Error analysis and post-hoc correction
-
-After model selection, two layers of error analysis are run:
-
-1. `4.error_analysis.R` — spatial maps of nominal and RMSLE errors for
-   both species, using the best per-species model (Bell for *vivax*,
-   Poisson for *falciparum*).
-2. `5.1.error_correction_vivax.R` and `5.2.error_correction_falciparum.R`
-   — a piecewise multiplicative correction. The selected model is used to
-   classify cells into "near-zero" and "non-trivial" predictions; on the
-   non-trivial regime, a no-intercept linear regression on the training
-   years produces a scaling coefficient that is applied to the test-year
-   predictions. The thresholds separating these regimes are visually
-   calibrated on the predicted-vs-real scatter at the per-`100000` scale.
-
-Loss functions (MAE, MBE, RMSE, NRMSE, RAE, RSE, RMSLE) live in
-`scripts/loss_functions.R` and are sourced explicitly by any script that
-needs them.
+Bayesian spatio-temporal modeling of *P. vivax* and *P. falciparum* incidence
+across the 107 microregions of the Legal Amazon (9 states), 2003-2022,
+fit with INLA. Written for a Scientific Reports revision. This document
+summarizes what each stage of the pipeline does, what we found, and known
+limitations. The scripts themselves carry no comments, so this is the
+documentation.
 
 ## Pipeline
 
-```
-0. scripts/0.download_data.R              # Mendeley -> data/main_data/
-1. scripts/1.data_wrangling.R             # joins climate/cities -> data/output_data/
-2. scripts/2.spatial_data_wrangling.R     # (optional — outputs/*.graph already versioned)
-3. scripts/3.microrregion_models/         # INLA fits per micro-region
-   3a. 1.bell_*.R / 2.nbinomial_*.R /     # per-family selection (DIC/WAIC),
-       3.poisson_*.R                      # logged to results/model_selection.csv
-   3b. 4.best_models_*.R                  # refits the best formula per family
-                                          # and writes the prediction CSVs
-4. scripts/4.error_analysis.R             # error maps
-5. scripts/5.1.error_correction_*.R       # post-hoc multiplicative correction
-```
+| Script | Purpose |
+|---|---|
+| `0.download_data.R` | Fetch and cache all raw sources |
+| `1.data_wrangling.R` | Build the microregion x month analysis panel |
+| `2.1.eda.R`, `2.2.eda.R` | Exploratory figures and covariate screening |
+| `2.3.model_iteration.R` | CV harness developing the Bell model's functional form |
+| `3.family_comparison.R` | Same functional form under Poisson / Negative Binomial |
+| `4.holdout_evaluation.R` | First use of the untouched 2021-2022 holdout |
+| `5.holdout_error_maps.R` | Spatial diagnostics on the holdout errors |
+| `scripts/legacy/` | Pipeline behind the originally submitted paper, superseded (kept for reference) |
 
-### Prerequisites
+Run in that order. Each script is idempotent (skips work whose output
+already exists on disk), except `1.data_wrangling.R`.
 
-- R 4.3+
-- CRAN packages: `dplyr`, `readr`, `tidyr`, `digest`, `sf`, `spdep`,
-  `geobr`, `ggplot2`, `Matrix`, `MASS`
-- INLA: `install.packages("INLA",
-  repos = c(getOption("repos"), INLA = "https://inla.r-inla-download.org/R/stable"),
-  dep = TRUE)`
-- System libs (Debian/Ubuntu):
-  `libgdal-dev libproj-dev libgeos-dev libudunits2-dev libssl-dev
-  libcurl4-openssl-dev libxml2-dev`
+## 0. Data acquisition
 
-### Run
+Sources: case notifications from a public Mendeley Data deposit (DOI
+`10.17632/9n6b97fsbd.2`, species-coded, municipality-month grain);
+population from IBGE/SIDRA; deforestation from INPE PRODES; precipitation,
+temperature and dewpoint from ERA5; health facility counts from
+DataSUS/CNES (monthly FTP snapshots); microregion boundaries from IBGE's
+shapefile. Everything is cached to disk and only re-downloaded if missing.
 
-```r
-Rscript scripts/0.download_data.R
-Rscript scripts/1.data_wrangling.R
-# pick a model to fit, e.g.:
-Rscript scripts/3.microrregion_models/2.nbinomial_falciparum.R
-# generate the prediction CSVs used downstream:
-Rscript scripts/3.microrregion_models/4.best_models_vivax.R
-```
+Population isn't available from SIDRA for every year and municipality
+(census years use a different table than the annual estimates, and some
+municipalities are missing individual years). Gaps are filled per
+municipality by linear interpolation, with the nearest known value held
+constant outside the observed range. A municipality with fewer than two
+real data points is left as is, since there's nothing to interpolate
+from.
 
-## Results
+**Limitation:** CNES has no source at all for 2003-2004. Left as `NA`,
+never imputed.
 
-All numbers below are on a held-out window with rates in **cases per
-100 000 inhabitants**. Per-fit DIC/WAIC/CPO across all four formulas and
-both species are in `results/model_selection.csv`; per-species test-set
-metrics are in `results/test_metrics_microrregion_{vivax,falciparum}.csv`
-(written by `4.best_models_*` over `ano >= 2016`, then overwritten by
-`5.1`/`5.2` with `ano == 2018` plus the corrected variant) and
-`results/test_metrics_am_vivax.csv` (`ano >= 2016`).
+## 1. Data wrangling
 
-### Best-fit formula per family (DIC)
+Aggregates municipality-month case counts to microregion x month, filters
+to the 9 Legal Amazon states, and builds the adjacency graph INLA needs
+for any spatially-structured random effect. Rate is always cases per
+100,000 inhabitants: raw counts aren't comparable across microregions of
+very different population.
 
-| species    | Bell | Poisson | Negative binomial |
-|------------|:----:|:-------:|:-----------------:|
-| vivax      | m3   | m3      | m3                |
-| falciparum | m3   | m2      | m4                |
+`hotspots` is a time-varying feature (months in the prior 3 years at or
+above that species' own top-1% rate). Test-only, tried and rejected as a
+covariate (see below).
 
-`mX` indexes the four formulas in the order they appear in the
-methodology (with/without climate covariates × with/without space–time
-interaction). For *falciparum* the Poisson winner is `m2` (climate
-covariates, no interaction); for *vivax*, every family settles on `m3`
-(interaction, no covariates), which means the IID space–time term
-absorbs most of the climate signal in this dataset.
+## 2.1 / 2.2 — Exploratory analysis
 
-### Per-species pick on the test set
+Motivates the modeling choices before any model is fit:
 
-#### *P. vivax* — micro-region (Bell, m3)
+- **Overdispersion** far beyond what a Poisson process would produce, for
+  both species. Motivates Bell/Negative Binomial over plain Poisson.
+- **Seasonality**: a real Jan-Mar peak, consistent across years.
+- **Chronic spatial hotspots**: a small, stable set of microregions
+  responsible for a disproportionate share of extreme-rate months. These
+  turn out later to be the model's hardest holdout cases too (§5).
+- **Covariate screening** (deforestation, precipitation, temperature,
+  humidity, CNES facility types): rate ratios and deviance tests against
+  a GLM baseline (`factor(microregion) + ns(year) + factor(month)`)
+  motivate which covariates are worth carrying into the real model.
 
-The Bell fit dominates the per-species comparison and is the model
-consumed downstream:
+**Limitation:** this screening used the old GLM baseline, not the
+eventual winning space-time structure. A covariate's apparent signal here
+could in principle be fully absorbed once real space-time structure is in
+the model. It's re-tested inside the actual structure in §2.3/§3, so this
+isn't blind, but the screening result on its own shouldn't be over-read.
 
-| variant             | MBE   | NRMSE  | RAE   | RMSLE | RSE   | cor    |
-|---------------------|------:|-------:|------:|------:|------:|-------:|
-| bell                |  95.2 | 0.1028 | 0.609 |  1.33 | 0.99  | 0.779  |
-| poisson             |  97.5 | 0.1043 | 0.622 |  1.42 | 1.02  | 0.779  |
-| nbinomial           |  97.6 | 0.1044 | 0.623 |  1.43 | 1.03  | 0.780  |
-| bell + correction   | **15.8** | **0.0652** | **0.417** | **1.07** | **0.40** | 0.779  |
+## 2.3 — Functional form (Bell family fixed)
 
-The piecewise multiplicative correction (§5.1) collapses the mean bias
-by ~6× and cuts the relative-squared-error by ~60% without sacrificing
-correlation — `bell_preds × 7.88` for cells where the raw prediction
-exceeds 2 per 100 000.
+Rolling CV, always an expanding training window, always refit before
+forecasting: idMes 109-216 (2012-2020) rolling for structure iteration,
+idMes 217-240 (2021-2022) never touched here (`IDMES_HOLDOUT`).
 
-#### *P. falciparum* — micro-region (Poisson, m2)
+Built up Model 0 (intercept only) through Model 6:
 
-`poisson_2` is the per-family DIC winner and is the model consumed
-downstream:
+- **Model 3** (backbone): separate main terms for space (`iid`), year
+  trend (`ar1`), and month cycle (`rw2` cyclic), plus two interactions:
+  area x year and area x month (the second needs a sum-to-zero
+  constraint to stay identifiable). Beats every simpler structure tried,
+  including a single combined Kronecker term and the paper's own
+  interaction design.
+- **`iid` beats `bym2`** for the spatial term in every configuration
+  tested (main term alone, inside each interaction, combined). bym2's own
+  mixing parameter came out around 0.23 in a direct check, so it's mostly
+  unstructured anyway. `iid` is used everywhere, at a fraction of the
+  compute.
+- **Model 5**: adds deforestation (as a natural spline, clearly better
+  than linear), precipitation, temperature, and humidity as flat fixed
+  effects.
+- **Model 6**: adds a species-specific CNES facility-type covariate. Not
+  adopted: no robust improvement over Model 5 on the full CV (falciparum
+  rse actually worsens slightly). Kept as a secondary candidate.
+- Two CV regimes run for the final candidates: quarterly refit (36
+  folds, `step=3`, cycling every calendar quarter) and annual refit
+  (single fit per year, no mid-course update). The quarterly design
+  replaced an earlier step=12 version that only ever tested Jan-Mar and
+  hid a lot of quarter-dependent variation.
 
-| variant                | MBE   | NRMSE  | RAE   | RMSLE | RSE   | cor    |
-|------------------------|------:|-------:|------:|------:|------:|-------:|
-| bell                   |  9.86 | 0.0972 | 0.569 | 0.930 | 1.00  | 0.505  |
-| poisson                | 10.03 | 0.0978 | 0.579 | 1.032 | 1.01  | 0.470  |
-| nbinomial              | 10.27 | 0.0982 | 0.584 | 1.124 | 1.02  | 0.529  |
-| poisson + correction   | 10.15 | 0.0975 | 0.581 | 1.169 | 1.01  | 0.406  |
+**Limitation:** covariate credibility was checked on the full training
+data (all coefficients' 95% credible intervals excluded 0), not
+re-verified per fold. A covariate could in principle be credible overall
+while not adding real predictive value in every fold.
 
-The three families are within striking distance on the test set, and
-the piecewise correction (three regimes: `<1`, `[1, 4]`, `>4`) does not
-clearly help — relative-error metrics barely move and `cor` drops by
-~0.06. The decision to keep `poisson_2` is anchored on DIC and on its
-parsimony (climate covariates, no space–time interaction), not on a
-clean test-set win.
+Median across the quarterly-refit CV folds, `results/model_iteration/iteration_metrics.csv`:
 
-#### *P. vivax* — Amazonas state (Bell, m3)
+| Model | Species | DIC | RSE | cor | coverage_95 | width_95 |
+|---|---|---|---|---|---|---|
+| glm_sem_covariaveis | P. falciparum | NA | 0.636 | 0.644 | 0.603 | 7.2 |
+| glm_sem_covariaveis | P. vivax | NA | 0.492 | 0.776 | 0.433 | 20.7 |
+| model0_intercept | P. falciparum | 1,000,255 | 1.111 | 0.087 | 0.126 | 32.6 |
+| model0_intercept | P. vivax | 2,509,753 | 1.013 | 0.069 | 0.070 | 74.4 |
+| model1_iid_ar1_ano | P. falciparum | 100,797 | 0.161 | 0.945 | 0.933 | 11.0 |
+| model1_iid_ar1_ano | P. vivax | 168,591 | 0.218 | 0.907 | 0.824 | 48.0 |
+| model2_bym2_ar1_ano | P. falciparum | 100,803 | 0.170 | 0.944 | 0.933 | 11.1 |
+| model2_bym2_ar1_ano | P. vivax | 168,595 | 0.231 | 0.907 | 0.822 | 48.1 |
+| model3_separated_iid | P. falciparum | 89,431 | 0.124 | 0.954 | 0.949 | 11.5 |
+| model3_separated_iid | P. vivax | 136,666 | 0.140 | 0.941 | 0.844 | 52.0 |
+| model4_covariates | P. falciparum | 89,208 | 0.136 | 0.952 | 0.942 | 11.4 |
+| model4_covariates | P. vivax | 136,222 | 0.138 | 0.941 | 0.849 | 52.6 |
+| model5_defor_ns (adopted) | P. falciparum | 89,211 | 0.135 | 0.956 | 0.942 | 11.5 |
+| model5_defor_ns (adopted) | P. vivax | 136,226 | 0.138 | 0.941 | 0.850 | 52.2 |
+| model6_cnes | P. falciparum | 89,211 | 0.135 | 0.955 | 0.939 | 11.5 |
+| model6_cnes | P. vivax | 136,225 | 0.138 | 0.942 | 0.850 | 52.5 |
+| paper_best_replica | P. falciparum | 163,301 | 0.674 | 0.645 | 0.815 | 12.7 |
+| paper_best_replica | P. vivax | 124,433 | 0.798 | 0.800 | 0.928 | 210.1 |
 
-A finer-grain Amazonas-state sanity check (`scripts/3.state_models/vivax_AM.R`):
+Models 3 through 6 are all within noise of each other on every metric in
+this table. Model 5 is what we carried forward, mainly for the
+defor_lag2 spline result, but nothing in this CV cleanly rules out 3, 4,
+or 6 either. Worth stating plainly rather than letting the table imply a
+decisive winner.
 
-| variant | MBE   | NRMSE  | RAE   | RMSLE | RSE   | cor    |
-|---------|------:|-------:|------:|------:|------:|-------:|
-| bell    | 239.1 | 0.0989 | 0.753 |  1.82 | 1.12  | 0.524  |
+**Credible intervals**: `summary.fitted.values`'s own quantiles only
+cover mean-function uncertainty, not observation noise, so intervals are
+built from `inla.posterior.sample()` draws of the linear predictor
+instead. For Bell specifically this needs an extra step: its exact pmf
+needs the y-th Bell number, which overflows well before the case counts
+seen here, so there's no way to sample directly from it. Each posterior
+draw of `mu` is converted to Bell's own mean/variance (`mean = theta *
+exp(theta)`, `theta` from the Lambert W function of `mu`), and a new
+observation is drawn from a normal approximation at that exact mean and
+variance. Poisson and Negative Binomial don't need this: `rpois()` and
+`rnbinom()` sample from the real distribution directly.
 
-Larger MBE and lower correlation than at the micro-region grain are
-expected: aggregating to the larger spatial unit smooths the response,
-whereas the state-level Amazonas model resolves municipality-level
-spikes that the additive structure cannot fully explain.
+## 3. Family comparison
 
-### Artefacts
+Same winning structure (§2.3), same CV design, testing Poisson and
+Negative Binomial instead of Bell. `results/best_models.csv` holds the
+winner per family/species.
 
-- `results/preds_microrregion_{vivax,falciparum}_df.csv` — per-cell
-  predictions for the three families plus the corrected prediction.
-- `results/preds_am_vivax_df.csv` — Bell predictions at the
-  AM-municipality grain.
-- `results/erros_*_2018.png` / `results/erros_*_2018_corrigido.png` —
-  spatial maps of nominal error before/after the multiplicative
-  correction.
-- `results/erros_*_rsle.png` — RMSLE maps for the selected species
-  predictor.
+Key finding: **coverage drops outside Jan-Mar**, most for vivax. Bell's
+worst quarter lands at 0.92 for falciparum, close enough to nominal to be
+noise, but 0.80 for vivax, a real 15-point miss. Poisson shows the same
+pattern in both species, more severely (0.86 falciparum, 0.67 vivax).
+Both families have a mean-variance relationship fixed by the
+distribution, which doesn't match the higher dispersion seen the rest of
+the year. Negative Binomial's free dispersion parameter fixes this in
+both species. Confirmed independent of the `int.strategy` (`eb` vs `ccd`)
+INLA integration setting, and independent of `num.threads`.
 
-A longer commentary on covariate-significance shifts and the
-intra-family DIC reranking is in `refactor_changes.md`.
+**No single family wins uniformly.** Always compare `|coverage_95 -
+0.95|` (distance from the calibration target), not raw coverage
+magnitude, since over-covering is also miscalibration. Which family
+looks best depends on species and refit regime.
 
-## Future work
+Winning model per family/species, quarterly-refit CV, `results/best_models.csv`:
 
-To extend the window to the years currently available on Mendeley
-(2019–2022), update `YEAR_END` in `scripts/0.download_data.R`.
+| Family | Species | Model | DIC | RSE | cor | coverage_95 | width_95 |
+|---|---|---|---|---|---|---|---|
+| bell | P. falciparum | model5 | 89,211 | 0.135 | 0.956 | 0.942 | 11.5 |
+| bell | P. vivax | model5 | 136,226 | 0.138 | 0.941 | 0.850 | 52.2 |
+| poisson | P. falciparum | model5 | 77,398 | 0.131 | 0.953 | 0.883 | 6.2 |
+| poisson | P. vivax | model5 | 40,396 | 0.141 | 0.941 | 0.720 | 23.7 |
+| nbinomial | P. falciparum | model6 | 86,258 | 0.152 | 0.953 | 0.975 | 28.2 |
+| nbinomial | P. vivax | model6 | 128,482 | 0.145 | 0.938 | 0.941 | 162.7 |
 
-For fresher or finer climate data, the free **Copernicus Climate Data
-Store (CDS)** API serves monthly/hourly ERA5. It requires registration
-and a key (https://cds.climate.copernicus.eu). To rebuild
-`rhum_df`/`temp_df`, fetch `2m_temperature` and `2m_dewpoint_temperature`
-and aggregate over each municipality polygon. The automation is not
-included here so that credentials do not have to be managed inside the
-repo.
+On this validation CV, no family sweeps the board, but if forced to
+pick per species, Bell for falciparum and Negative Binomial for vivax
+looks like the defensible read (best or near-best RSE and coverage for
+each). We didn't split the choice that way in the end: §4/§5 run
+Negative Binomial for both species, for simplicity and because it never
+looks clearly wrong on either. That's a judgment call, not something the
+numbers force, and it's worth saying so rather than presenting the
+family choice as more settled than it is.
 
-## Licences
+## 4. Holdout evaluation
 
-- Code: see `LICENSE` (if applicable).
-- Malaria data: CC BY 4.0 — attribute Monteiro et al. (2023) in any
-  republication.
-- Maps: IBGE (open use).
+The first and only use of 2021-2022 for genuine out-of-sample scoring.
+Rolling CV *within* the holdout at three horizons: 3-month (8 folds,
+tiles both years), 1-year (2 folds, one refit between years), 2-year (1
+fold, a single fit covering the whole holdout with no refit at all). All
+folds train on real data only, expanding forward, never on the model's
+own past predictions.
+
+Negative Binomial won clearly on falciparum (much lower rse, higher
+correlation at the 3-month and 2-year horizons) and was at least as good
+on vivax (rse ties Bell, better calibration). This is a bigger, more
+consistent family signal than anything visible in the pre-holdout CV.
+The script now only runs Negative Binomial: Bell and Poisson were run
+here once to make that comparison, and their results stay on disk and
+in git history (`results/holdout/models/`, `results/holdout/residuals/`)
+even though the current script no longer regenerates them.
+Per-row predictions are saved (`results/holdout/residuals/`), not just
+fold metrics, specifically to support the spatial diagnostics in §5.
+
+Median across holdout folds, `results/holdout/models/`:
+
+| Horizon | Family | Species | RSE | cor | coverage_95 | dist from 0.95 | width_95 |
+|---|---|---|---|---|---|---|---|
+| 3-month | bell | P. falciparum | 0.356 | 0.910 | 0.942 | 0.008 | 9.9 |
+| 3-month | nbinomial | P. falciparum | 0.172 | 0.931 | 0.975 | 0.025 | 23.8 |
+| 3-month | poisson | P. falciparum | 0.393 | 0.907 | 0.891 | 0.059 | 5.3 |
+| 3-month | bell | P. vivax | 0.129 | 0.942 | 0.868 | 0.082 | 43.7 |
+| 3-month | nbinomial | P. vivax | 0.128 | 0.944 | 0.953 | 0.003 | 118.7 |
+| 3-month | poisson | P. vivax | 0.149 | 0.942 | 0.746 | 0.204 | 21.2 |
+| 1-year | bell | P. falciparum | 0.407 | 0.868 | 0.985 | 0.035 | 50.8 |
+| 1-year | nbinomial | P. falciparum | 0.399 | 0.876 | 0.985 | 0.035 | 64.1 |
+| 1-year | poisson | P. falciparum | 0.430 | 0.864 | 0.978 | 0.028 | 48.1 |
+| 1-year | bell | P. vivax | 0.245 | 0.895 | 0.956 | 0.006 | 271.7 |
+| 1-year | nbinomial | P. vivax | 0.243 | 0.899 | 0.957 | 0.007 | 326.7 |
+| 1-year | poisson | P. vivax | 0.252 | 0.894 | 0.938 | 0.012 | 290.9 |
+| 2-year | bell | P. falciparum | 0.609 | 0.648 | 0.987 | 0.037 | 76.5 |
+| 2-year | nbinomial | P. falciparum | 0.523 | 0.801 | 0.988 | 0.038 | 76.3 |
+| 2-year | poisson | P. falciparum | 0.647 | 0.688 | 0.978 | 0.028 | 72.6 |
+| 2-year | bell | P. vivax | 0.260 | 0.881 | 0.949 | 0.001 | 381.7 |
+| 2-year | nbinomial | P. vivax | 0.256 | 0.882 | 0.958 | 0.008 | 422.8 |
+| 2-year | poisson | P. vivax | 0.265 | 0.882 | 0.937 | 0.013 | 383.3 |
+
+Unlike the pre-holdout CV, Negative Binomial is the clear pick here: best
+or tied-best RSE and correlation in every row, and coverage never far
+from target. This is the strongest, most consistent family signal in the
+whole project, and it's what retroactively justifies running NB for both
+species in §5 rather than splitting by species as §3's validation CV
+alone would have suggested. Worth being honest that this only became
+clear on the holdout; the validation CV by itself would not have
+pointed there as confidently.
+
+## 5. Spatial error diagnostics
+
+Maps error by microregion and forecast horizon, for the winning holdout
+model (Negative Binomial, Model 5). Two RSE baselines, because the
+choice matters a lot:
+
+1. **Own historical rate** (`map_errors_rse.png`, `map_errors_trend_rse.png`):
+   each microregion's own case rate, computed only from data available at
+   that fold's training cutoff. This is an expanding window, the same
+   clock the model itself uses, never the mean of the months being
+   predicted, which would be an oracle baseline no real forecaster could
+   compute. The model beats this baseline by a wide margin almost
+   everywhere (pooled SSE ratio 0.12-0.25, a 75-88% error reduction).
+
+   ![RSE by microregion and horizon, against each area's own historical rate](results/holdout/maps/map_errors_rse.png)
+   ![Same comparison, split by year](results/holdout/maps/map_errors_trend_rse.png)
+
+2. **Trailing 12-month moving average** (`map_errors_rse_vs_ma12.png`):
+   a much harder, more reactive baseline, updated with the same recent
+   real data the model gets. Microregions with genuinely zero incidence
+   in both the reference window and the test period are excluded from
+   the win/loss tally below, since RSE is 0/0 there. The model's own
+   predictions in these areas are negligible (about 0.001-0.03
+   cases/100k), so this is a metric artifact, not a real miss.
+
+   ![RSE by microregion and horizon, against a trailing 12-month moving average](results/holdout/maps/map_errors_rse_vs_ma12.png)
+
+RMSLE (`map_errors_rmsle.png`, `map_errors_trend_rmsle.png`) is kept as a
+second, baseline-free metric, since it doesn't depend on which naive
+comparison is deemed fair.
+
+![RMSLE by microregion and horizon](results/holdout/maps/map_errors_rmsle.png)
+![Same comparison, split by year](results/holdout/maps/map_errors_trend_rmsle.png)
+
+The pooled SSE ratio against the moving average is dominated by a
+handful of outlier microregions, so `results/holdout/rse_vs_ma12_summary.csv`
+instead reports, per microregion, whether the model beats the moving
+average (win/loss tally) and the median RSE and RMSLE across
+microregions, split into the full set, chronic hotspots only
+(`results/eda/hotspots_ranking.csv`), and everything else:
+
+| Species | Horizon | Scenario | n | model wins | median RSE | median RMSLE |
+|---|---|---|---|---|---|---|
+| P. falciparum | 3-month | hotspots | 12 | **75%** | 0.874 | 0.707 |
+| P. falciparum | 3-month | full | 85 | 65% | 0.946 | 0.161 |
+| P. falciparum | 3-month | excl. hotspots | 73 | 63% | 0.947 | 0.142 |
+| P. falciparum | 1-year | hotspots | 12 | **75%** | 0.924 | 0.797 |
+| P. falciparum | 1-year | full | 85 | 61% | 0.961 | 0.168 |
+| P. falciparum | 1-year | excl. hotspots | 73 | 59% | 0.973 | 0.144 |
+| P. falciparum | 2-year | hotspots | 12 | **67%** | 0.847 | 0.871 |
+| P. falciparum | 2-year | full | 85 | 52% | 0.998 | 0.168 |
+| P. falciparum | 2-year | excl. hotspots | 73 | 49% | 1.004 | 0.146 |
+| P. vivax | 3-month | hotspots | 11 | **82%** | 0.726 | 0.449 |
+| P. vivax | 3-month | full | 101 | 53% | 0.978 | 0.350 |
+| P. vivax | 3-month | excl. hotspots | 90 | 50% | 1.002 | 0.335 |
+| P. vivax | 1-year | hotspots | 11 | **64%** | 0.931 | 0.607 |
+| P. vivax | 1-year | full | 101 | 47% | 1.024 | 0.391 |
+| P. vivax | 1-year | excl. hotspots | 90 | 44% | 1.032 | 0.368 |
+| P. vivax | 2-year | hotspots | 11 | **64%** | 0.653 | 0.631 |
+| P. vivax | 2-year | full | 101 | 46% | 1.023 | 0.391 |
+| P. vivax | 2-year | excl. hotspots | 90 | 43% | 1.044 | 0.349 |
+
+Two things worth separating here. First, the model beats the moving
+average at hotspots more often than everywhere else, not less: 64-82% of
+hotspot microregions, against a coin flip or worse outside them. The
+pooled ratio shown in the map hides this, since it sums squared errors
+before dividing and a couple of the worst hotspots (§ below) dominate
+that sum even though most hotspots individually do fine. Second, losing
+to the moving average outside hotspots doesn't mean the prediction is
+bad: RMSLE there is low (0.14-0.17 falciparum, 0.33-0.37 vivax), 4-6x
+lower than at hotspots. Those microregions are low-incidence and stable
+enough that a 12-month average is already a strong predictor, so there's
+little room for any model to add value. The real headroom is at the
+hotspots, where RMSLE stays high even where the model wins.
+
+Put together: the space-time structure is doing real work, and it's
+doing that work specifically where it's hardest (the hotspots), not
+padding its numbers on the easy majority of microregions where a naive
+average would do almost as well.
+
+## `scripts/legacy/`
+
+The pipeline behind the version of the paper originally submitted for
+review: per-microregion Bell/Poisson/NB fits, a single blind 2016+
+forecast window (not rolling CV), and a separate error-correction
+post-processing step. Superseded by `2.1.eda.R` onward, which uses a
+fairer rolling-CV design and found a better functional form. Kept for
+reproducibility of the originally submitted numbers, not maintained
+further.
+
+## Known limitations, cross-cutting
+
+- Deforestation is the only land-use covariate. Nothing captures illegal
+  mining activity specifically, which is the single largest source of
+  spatial error found (§5).
+- CNES (health-facility access) never proved a robust addition to
+  predictive accuracy despite being individually credible, so it was
+  dropped from the adopted model.
+- No family wins uniformly across species and refit cadence. The choice
+  reported in the paper should state which regime it's optimized for.
+- The moving-average sanity check (§5) shows the space-time structure's
+  advantage over a trivial reactive baseline is real but modest: roughly
+  a coin flip per microregion, tilting toward the model at shorter
+  horizons. This is a more honest framing than the pooled aggregate
+  metrics alone would suggest.

@@ -12,6 +12,7 @@ dir.create('results/holdout/residuals', recursive = TRUE, showWarnings = FALSE)
 N_POSTERIOR_SAMPLES <- 300
 VIVAX <- 'P. vivax'
 FALCIPARUM <- 'P. falciparum'
+FAMILY <- 'nbinomial'
 
 build_folds <- function(test_start_min, test_end_max, horizon, step) {
   starts <- seq(test_start_min, test_end_max - horizon + 1, by = step)
@@ -58,37 +59,17 @@ formula_model5 <- update(
     precip_mm_z + temp_z + rhum_z
 )
 
-lambert_w0 <- function(x, tol = 1e-10, max_iter = 100) {
-  w <- ifelse(x < 1, x, log(x))
-  w[x <= 0] <- 0
-  for (i in seq_len(max_iter)) {
-    ew <- exp(w)
-    wew <- w * ew
-    denom <- ew * (w + 1) - (w + 2) * (wew - x) / (2 * w + 2)
-    w_new <- w - (wew - x) / denom
-    if (max(abs(w_new - w), na.rm = TRUE) < tol) return(w_new)
-    w <- w_new
-  }
-  w
-}
-simulate_bell <- function(mu) {
-  theta <- lambert_w0(mu)
-  variancia <- mu * (1 + theta)
-  pmax(0, round(rnorm(length(mu), mean = mu, sd = sqrt(variancia))))
-}
-
 RETRY_LOG_PATH <- 'results/holdout/models/retry_log.csv'
-log_retry <- function(familia, modelo, especie, test_start, motivo, detalhe) {
+log_retry <- function(modelo, especie, test_start, motivo, detalhe) {
   row <- tibble(
-    timestamp = as.character(Sys.time()), familia = familia, modelo = modelo,
+    timestamp = as.character(Sys.time()), familia = FAMILY, modelo = modelo,
     especie = especie, test_start = test_start, motivo = motivo, detalhe = detalhe
   )
   write_csv(row, RETRY_LOG_PATH, append = file.exists(RETRY_LOG_PATH))
 }
 
 run_fold <- function(
-  df, fold, formula, family, label, especie, int_strategy = 'eb',
-  previous_fit = NULL
+  df, fold, formula, label, especie, int_strategy = 'eb', previous_fit = NULL
 ) {
   d <- df |> filter(idMes <= fold$test_end)
   test_rows <- d$idMes >= fold$test_start & d$idMes <= fold$test_end
@@ -119,7 +100,7 @@ run_fold <- function(
     }
     t0 <- Sys.time()
     fit <- inla(
-      formula = formula_fold, family = family, data = d,
+      formula = formula_fold, family = FAMILY, data = d,
       working.directory = tempdir(),
       control.predictor = list(compute = TRUE, link = 1),
       control.compute = list(dic = TRUE, waic = TRUE, config = TRUE),
@@ -142,23 +123,17 @@ run_fold <- function(
     )
     mu_samples <- matrix(exp(eta_samples), nrow = length(test_idx))
 
-    sim <- if (family == 'bell') {
-      apply(mu_samples, 2, simulate_bell) / pop_test * 1e5
-    } else if (family == 'poisson') {
-      apply(mu_samples, 2, function(mu) rpois(length(mu), lambda = mu)) / pop_test * 1e5
-    } else {
-      size_samples <- vapply(
-        samples,
-        function(s) s$hyperpar[['size for the nbinomial observations (1/overdispersion)']],
-        numeric(1)
-      )
-      sim_raw <- vapply(
-        seq_len(ncol(mu_samples)),
-        function(j) rnbinom(nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]),
-        numeric(nrow(mu_samples))
-      )
-      sim_raw / pop_test * 1e5
-    }
+    size_samples <- vapply(
+      samples,
+      function(s) s$hyperpar[['size for the nbinomial observations (1/overdispersion)']],
+      numeric(1)
+    )
+    sim_raw <- vapply(
+      seq_len(ncol(mu_samples)),
+      function(j) rnbinom(nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]),
+      numeric(nrow(mu_samples))
+    )
+    sim <- sim_raw / pop_test * 1e5
     ci_low <- apply(sim, 1, quantile, probs = 0.025)
     ci_high <- apply(sim, 1, quantile, probs = 0.975)
 
@@ -194,7 +169,7 @@ run_fold <- function(
       message(sprintf(
         '  [warn] warm-started fit failed (%s) -- retrying cold', conditionMessage(e)
       ))
-      log_retry(family, label, especie, fold$test_start, 'crash', conditionMessage(e))
+      log_retry(label, especie, fold$test_start, 'crash', conditionMessage(e))
       fit_and_score(use_warm_start = FALSE)
     }
   )
@@ -204,7 +179,7 @@ run_fold <- function(
       out$metrics$rse, out$metrics$cor
     ))
     log_retry(
-      family, label, especie, fold$test_start, 'degenerate',
+      label, especie, fold$test_start, 'degenerate',
       sprintf('rse=%.2f cor=%.2f', out$metrics$rse, out$metrics$cor)
     )
     out <- fit_and_score(use_warm_start = FALSE)
@@ -213,7 +188,7 @@ run_fold <- function(
 }
 
 run_cv <- function(
-  df, folds, especie, formula, family, label, metrics_path, residuals_path,
+  df, folds, especie, formula, label, metrics_path, residuals_path,
   int_strategy = 'eb'
 ) {
   done <- if (file.exists(metrics_path)) {
@@ -240,13 +215,13 @@ run_cv <- function(
   previous_fit <- NULL
   for (fold in remaining) {
     out <- run_fold(
-      df, fold, formula, family, label, especie,
+      df, fold, formula, label, especie,
       int_strategy = int_strategy, previous_fit = previous_fit
     )
     metrics_row <- out$metrics |>
-      mutate(especie = especie, familia = family, modelo = label, .before = 1)
+      mutate(especie = especie, familia = FAMILY, modelo = label, .before = 1)
     residuals_rows <- out$residuals |>
-      mutate(especie = especie, familia = family, modelo = label, .before = 1)
+      mutate(especie = especie, familia = FAMILY, modelo = label, .before = 1)
     write_csv(metrics_row, metrics_path, append = file.exists(metrics_path))
     write_csv(residuals_rows, residuals_path, append = file.exists(residuals_path))
     previous_fit <- out$fit
@@ -258,23 +233,20 @@ run_cv <- function(
   invisible(NULL)
 }
 
-run_model <- function(label, family, folds, horizon_tag) {
-  metrics_path <- sprintf('results/holdout/models/%s_%s_%s.csv', family, label, horizon_tag)
-  residuals_path <- sprintf('results/holdout/residuals/%s_%s_%s.csv', family, label, horizon_tag)
-  run_cv(micro_v, folds, VIVAX, formula_model5, family, label, metrics_path, residuals_path)
-  run_cv(micro_f, folds, FALCIPARUM, formula_model5, family, label, metrics_path, residuals_path)
+run_model <- function(label, folds, horizon_tag) {
+  metrics_path <- sprintf('results/holdout/models/%s_%s_%s.csv', FAMILY, label, horizon_tag)
+  residuals_path <- sprintf('results/holdout/residuals/%s_%s_%s.csv', FAMILY, label, horizon_tag)
+  run_cv(micro_v, folds, VIVAX, formula_model5, label, metrics_path, residuals_path)
+  run_cv(micro_f, folds, FALCIPARUM, formula_model5, label, metrics_path, residuals_path)
   invisible(read_csv(metrics_path, show_col_types = FALSE))
 }
 
 HORIZONS <- list(h3 = FOLDS_H3, h12 = FOLDS_H12, h24 = FOLDS_H24)
-FAMILIES <- c('bell', 'poisson', 'nbinomial')
 
-for (fam in FAMILIES) {
-  for (htag in names(HORIZONS)) {
-    message(sprintf('\n=== %s / model5 / %s ===', fam, htag))
-    res <- run_model('model5', fam, HORIZONS[[htag]], htag)
-    print(res, width = Inf, n = Inf)
-  }
+for (htag in names(HORIZONS)) {
+  message(sprintf('\n=== %s / model5 / %s ===', FAMILY, htag))
+  res <- run_model('model5', HORIZONS[[htag]], htag)
+  print(res, width = Inf, n = Inf)
 }
 
 cat('\nDone.\n')

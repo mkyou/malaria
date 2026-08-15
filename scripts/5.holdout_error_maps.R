@@ -103,6 +103,7 @@ erros_ma12 <- residuos |>
   summarise(
     denom = sum((real_taxa - ma12_mean)^2),
     rse = sum((real_taxa - pred_taxa)^2) / denom,
+    rmsle = sqrt(mean((log(real_taxa + 1) - log(pmax(pred_taxa, 0) + 1))^2)),
     .groups = 'drop'
   ) |>
   mutate(rse = if_else(denom == 0, NA_real_, rse))
@@ -116,16 +117,34 @@ plot_error_map(
   )
 )
 
-resumo_ma12 <- erros_ma12 |>
-  group_by(horizonte, especie) |>
-  summarise(
-    n_valido = sum(!is.na(rse)),
-    n_zero_incidencia = sum(is.na(rse)),
-    modelo_vence = sum(rse < 1, na.rm = TRUE),
-    ma12_vence = sum(rse >= 1, na.rm = TRUE),
-    pct_modelo_vence = round(100 * mean(rse < 1, na.rm = TRUE)),
-    .groups = 'drop'
-  )
+hotspots <- read_csv('results/eda/hotspots_ranking.csv', show_col_types = FALSE) |>
+  distinct(especie, codMicroRes) |>
+  mutate(is_hotspot = TRUE)
+
+erros_ma12 <- erros_ma12 |>
+  left_join(hotspots, by = c('especie', 'codMicroRes')) |>
+  mutate(is_hotspot = if_else(is.na(is_hotspot), FALSE, is_hotspot))
+
+summarise_ma12 <- function(data) {
+  data |>
+    group_by(horizonte, especie) |>
+    summarise(
+      n_valido = sum(!is.na(rse)),
+      n_zero_incidencia = sum(is.na(rse)),
+      modelo_vence = sum(rse < 1, na.rm = TRUE),
+      ma12_vence = sum(rse >= 1, na.rm = TRUE),
+      pct_modelo_vence = round(100 * mean(rse < 1, na.rm = TRUE)),
+      rse_mediano = round(median(rse, na.rm = TRUE), 3),
+      rmsle_mediano = round(median(rmsle, na.rm = TRUE), 3),
+      .groups = 'drop'
+    )
+}
+
+resumo_ma12 <- bind_rows(
+  summarise_ma12(erros_ma12) |> mutate(cenario = 'completo', .before = 1),
+  summarise_ma12(erros_ma12 |> filter(is_hotspot)) |> mutate(cenario = 'apenas_hotspots', .before = 1),
+  summarise_ma12(erros_ma12 |> filter(!is_hotspot)) |> mutate(cenario = 'sem_hotspots', .before = 1)
+)
 write_csv(resumo_ma12, 'results/holdout/rse_vs_ma12_summary.csv')
 
 
