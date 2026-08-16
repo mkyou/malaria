@@ -57,7 +57,8 @@ build_baseline <- function(window = NULL) {
 }
 
 hist_baseline <- build_baseline() |> rename(hist_mean = baseline_mean)
-ma12_baseline <- build_baseline(window = 12) |> rename(ma12_mean = baseline_mean)
+ma12_baseline <- build_baseline(window = 12) |>
+  rename(ma12_mean = baseline_mean)
 
 residuos <- residuos |>
   left_join(hist_baseline, by = c('especie', 'codMicroRes', 'test_start')) |>
@@ -89,7 +90,9 @@ plot_error_map <- function(data, metric, out_file, fill_scale) {
   ggsave(out_file, p, width = 8.27, height = 9.5, device = agg_png)
 }
 
-plot_error_map(erros, 'rse', 'results/holdout/maps/map_errors_rse.png', RSE_SCALE)
+plot_error_map(
+  erros, 'rse', 'results/holdout/maps/map_errors_rse.png', RSE_SCALE
+)
 plot_error_map(
   erros, 'rmsle', 'results/holdout/maps/map_errors_rmsle.png',
   scale_fill_gradientn(
@@ -113,11 +116,17 @@ plot_error_map(
   scale_fill_gradient2(
     low = '#2166ac', mid = '#f7f7f7', high = '#b2182b', midpoint = 1,
     limits = c(0, 2), oob = scales::squish, na.value = 'grey60',
-    name = 'RSE vs. area\'s\nown trailing\n12-month average\n(1 = ties it,\ncapped at 2,\ngrey = zero cases\nin reference window)'
+    name = paste0(
+      'RSE vs. area\'s\nown trailing\n12-month average\n',
+      '(1 = ties it,\ncapped at 2,\ngrey = zero cases\n',
+      'in reference window)'
+    )
   )
 )
 
-hotspots <- read_csv('results/eda/hotspots_ranking.csv', show_col_types = FALSE) |>
+hotspots <- read_csv(
+  'results/eda/hotspots_ranking.csv', show_col_types = FALSE
+) |>
   distinct(especie, codMicroRes) |>
   mutate(is_hotspot = TRUE)
 
@@ -142,8 +151,10 @@ summarise_ma12 <- function(data) {
 
 resumo_ma12 <- bind_rows(
   summarise_ma12(erros_ma12) |> mutate(cenario = 'completo', .before = 1),
-  summarise_ma12(erros_ma12 |> filter(is_hotspot)) |> mutate(cenario = 'apenas_hotspots', .before = 1),
-  summarise_ma12(erros_ma12 |> filter(!is_hotspot)) |> mutate(cenario = 'sem_hotspots', .before = 1)
+  summarise_ma12(erros_ma12 |> filter(is_hotspot)) |>
+    mutate(cenario = 'apenas_hotspots', .before = 1),
+  summarise_ma12(erros_ma12 |> filter(!is_hotspot)) |>
+    mutate(cenario = 'sem_hotspots', .before = 1)
 )
 write_csv(resumo_ma12, 'results/holdout/rse_vs_ma12_summary.csv')
 
@@ -168,7 +179,9 @@ plot_error_trend_map <- function(metric, out_file, fill_scale) {
   ggsave(out_file, p, width = 8.27, height = 11, device = agg_png)
 }
 
-plot_error_trend_map('rse', 'results/holdout/maps/map_errors_trend_rse.png', RSE_SCALE)
+plot_error_trend_map(
+  'rse', 'results/holdout/maps/map_errors_trend_rse.png', RSE_SCALE
+)
 plot_error_trend_map(
   'rmsle', 'results/holdout/maps/map_errors_trend_rmsle.png',
   scale_fill_gradientn(

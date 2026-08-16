@@ -46,7 +46,8 @@ if (file.exists(POPULACAO_OUT)) {
   }
 
   message(
-    '[fetch] 6579: annual estimates, 2003-2006, 2008-2009, 2011-2021 (one year per call)'
+    '[fetch] 6579: annual estimates, 2003-2006, 2008-2009, 2011-2021
+    (one year per call)'
   )
   est_years <- c(2003:2006, 2008:2009, 2011:2021)
   est <- bind_rows(lapply(est_years, function(y) {
@@ -108,7 +109,8 @@ if (file.exists(POPULACAO_OUT)) {
 
   write_csv(pop, POPULACAO_OUT)
   message(sprintf(
-    '[done] populacao_df.csv: primary SIDRA source, %d-%d (%d rows, %d municipalities)',
+    '[done] populacao_df.csv: primary SIDRA source, %d-%d
+    (%d rows, %d municipalities)',
     min(pop$ano),
     max(pop$ano),
     nrow(pop),
@@ -139,7 +141,10 @@ DATASET_URL <- paste0(
   '/files/e22ce7ac-daaf-4d93-a98d-6e0d3fbe643d/file_downloaded'
 )
 
-DATASET_SHA256 <- '3241ff18e67b5ee63b92145976c883268c839771da17c669fd350c7f844b8954'
+DATASET_SHA256 <- paste0(
+  '3241ff18e67b5ee63b92145976c883268c839771da17c669fd350c7f844b895',
+  '4'
+)
 
 YEAR_START <- 2003
 YEAR_END <- 2022
@@ -374,7 +379,8 @@ if (file.exists(CENTROIDS_OUT)) {
   write_csv(centroids, CENTROIDS_OUT)
   message(
     sprintf(
-      '[done] micro_centroids.csv: %d microregions (from shapefile, exact centroids)',
+      '[done] micro_centroids.csv: %d microregions (from shapefile,
+      exact centroids)',
       nrow(centroids)
     )
   )
@@ -450,8 +456,8 @@ if (file.exists(DEFORESTATION_OUT)) {
   }
 
   message(
-    '[fetch] TerraBrasilis WFS: prodes-legal-amz:yearly_deforestation, 2008-2022, 
-    by state (primary source attempt)'
+    '[fetch] TerraBrasilis WFS: prodes-legal-amz:yearly_deforestation,
+    2008-2022, by state (primary source attempt)'
   )
   primary_attempt_years <- 2008:2022
   wfs_results <- vector('list', length(primary_attempt_years))
@@ -467,8 +473,8 @@ if (file.exists(DEFORESTATION_OUT)) {
   failed_years <- primary_attempt_years[sapply(wfs_results, is.null)]
   if (length(failed_years) > 0) {
     warning(sprintf(
-      '[warn] PRODES primary-source fetch failed for %d year(s) even by state: %s.
-      These years will have NO deforestation data 
+      '[warn] PRODES primary-source fetch failed for %d year(s) even
+      by state: %s. These years will have NO deforestation data
       (no state-level secondary source exists to fall back to)',
       length(failed_years),
       paste(failed_years, collapse = ', ')
@@ -533,7 +539,8 @@ if (file.exists(DEFORESTATION_OUT)) {
   if (any(is.na(prodes$km2))) {
     warning(
       sprintf(
-        '[warn] %d (state, year) cells still have no deforestation value at all',
+        '[warn] %d (state, year) cells still have no deforestation
+        value at all',
         sum(is.na(prodes$km2))
       )
     )
@@ -650,8 +657,8 @@ if (file.exists(TEMP_OUT) && file.exists(RHUM_OUT)) {
 
   if (!file.exists(ERA5_TEMP_NC)) {
     message(
-      '[fetch] ERA5 2m_temperature + 2m_dewpoint_temperature, Legal Amazon bbox, 
-      2003-2022'
+      '[fetch] ERA5 2m_temperature + 2m_dewpoint_temperature,
+      Legal Amazon bbox, 2003-2022'
     )
     req <- list(
       dataset_short_name = 'reanalysis-era5-single-levels-monthly-means',

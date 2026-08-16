@@ -6,3 +6,14 @@ timestamp,familia,modelo,especie,test_start,motivo,detalhe
   If this does not help, please contact the developers at <help@r-inla.org>."
 2026-08-15 11:40:25.6323,nbinomial,model6,P. falciparum,181,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
   If this does not help, please contact the developers at <help@r-inla.org>."
+2026-08-16 06:35:12.656951,nbinomial,model5,P. falciparum,196,degenerate,rse=10679.74 cor=-0.07
+2026-08-16 06:42:26.438268,nbinomial,model5,P. falciparum,202,degenerate,rse=8.53 cor=0.00
+2026-08-16 07:02:21.51124,nbinomial,model5,P. falciparum,211,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>."
+2026-08-16 07:44:17.158867,nbinomial,model6,P. falciparum,205,degenerate,rse=224.20 cor=-0.08
+2026-08-16 07:48:29.568725,nbinomial,model6,P. falciparum,214,degenerate,rse=1.94 cor=0.12
+2026-08-16 07:59:46.046484,nbinomial,model5,P. falciparum,145,degenerate,rse=4.01 cor=0.28
+2026-08-16 08:05:15.864566,nbinomial,model5,P. falciparum,205,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>."
+2026-08-16 08:16:18.783464,nbinomial,model6,P. falciparum,193,degenerate,rse=927882.23 cor=0.06
+2026-08-16 08:41:09.133929,nbinomial,model6,P. falciparum,205,degenerate,rse=257.32 cor=-0.01

@@ -63,7 +63,8 @@ RETRY_LOG_PATH <- 'results/holdout/models/retry_log.csv'
 log_retry <- function(modelo, especie, test_start, motivo, detalhe) {
   row <- tibble(
     timestamp = as.character(Sys.time()), familia = FAMILY, modelo = modelo,
-    especie = especie, test_start = test_start, motivo = motivo, detalhe = detalhe
+    especie = especie, test_start = test_start, motivo = motivo,
+    detalhe = detalhe
   )
   write_csv(row, RETRY_LOG_PATH, append = file.exists(RETRY_LOG_PATH))
 }
@@ -125,12 +126,18 @@ run_fold <- function(
 
     size_samples <- vapply(
       samples,
-      function(s) s$hyperpar[['size for the nbinomial observations (1/overdispersion)']],
+      function(s) {
+        s$hyperpar[['size for the nbinomial observations (1/overdispersion)']]
+      },
       numeric(1)
     )
     sim_raw <- vapply(
       seq_len(ncol(mu_samples)),
-      function(j) rnbinom(nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]),
+      function(j) {
+        rnbinom(
+          nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]
+        )
+      },
       numeric(nrow(mu_samples))
     )
     sim <- sim_raw / pop_test * 1e5
@@ -167,7 +174,8 @@ run_fold <- function(
     fit_and_score(use_warm_start = TRUE),
     error = function(e) {
       message(sprintf(
-        '  [warn] warm-started fit failed (%s) -- retrying cold', conditionMessage(e)
+        '  [warn] warm-started fit failed (%s) -- retrying cold',
+        conditionMessage(e)
       ))
       log_retry(label, especie, fold$test_start, 'crash', conditionMessage(e))
       fit_and_score(use_warm_start = FALSE)
@@ -175,7 +183,8 @@ run_fold <- function(
   )
   if (is_degenerate(out)) {
     message(sprintf(
-      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) -- retrying cold',
+      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) --
+      retrying cold',
       out$metrics$rse, out$metrics$cor
     ))
     log_retry(
@@ -223,7 +232,9 @@ run_cv <- function(
     residuals_rows <- out$residuals |>
       mutate(especie = especie, familia = FAMILY, modelo = label, .before = 1)
     write_csv(metrics_row, metrics_path, append = file.exists(metrics_path))
-    write_csv(residuals_rows, residuals_path, append = file.exists(residuals_path))
+    write_csv(
+      residuals_rows, residuals_path, append = file.exists(residuals_path)
+    )
     previous_fit <- out$fit
     message(sprintf(
       '  test_start=%d  rse=%.3f  cor=%.3f  coverage_95=%.3f',
@@ -234,10 +245,20 @@ run_cv <- function(
 }
 
 run_model <- function(label, folds, horizon_tag) {
-  metrics_path <- sprintf('results/holdout/models/%s_%s_%s.csv', FAMILY, label, horizon_tag)
-  residuals_path <- sprintf('results/holdout/residuals/%s_%s_%s.csv', FAMILY, label, horizon_tag)
-  run_cv(micro_v, folds, VIVAX, formula_model5, label, metrics_path, residuals_path)
-  run_cv(micro_f, folds, FALCIPARUM, formula_model5, label, metrics_path, residuals_path)
+  metrics_path <- sprintf(
+    'results/holdout/models/%s_%s_%s.csv', FAMILY, label, horizon_tag
+  )
+  residuals_path <- sprintf(
+    'results/holdout/residuals/%s_%s_%s.csv', FAMILY, label, horizon_tag
+  )
+  run_cv(
+    micro_v, folds, VIVAX, formula_model5, label, metrics_path,
+    residuals_path
+  )
+  run_cv(
+    micro_f, folds, FALCIPARUM, formula_model5, label, metrics_path,
+    residuals_path
+  )
   invisible(read_csv(metrics_path, show_col_types = FALSE))
 }
 

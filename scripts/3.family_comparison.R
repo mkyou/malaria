@@ -9,6 +9,9 @@ source('scripts/loss_functions.R')
 dir.create(
   'results/family_comparison/models', recursive = TRUE, showWarnings = FALSE
 )
+dir.create(
+  'results/family_comparison/residuals', recursive = TRUE, showWarnings = FALSE
+)
 
 N_POSTERIOR_SAMPLES <- 300
 VIVAX <- 'P. vivax'
@@ -62,7 +65,8 @@ RETRY_LOG_PATH <- 'results/family_comparison/models/retry_log.csv'
 log_retry <- function(familia, modelo, especie, test_start, motivo, detalhe) {
   row <- tibble(
     timestamp = as.character(Sys.time()), familia = familia, modelo = modelo,
-    especie = especie, test_start = test_start, motivo = motivo, detalhe = detalhe
+    especie = especie, test_start = test_start, motivo = motivo,
+    detalhe = detalhe
   )
   write_csv(row, RETRY_LOG_PATH, append = file.exists(RETRY_LOG_PATH))
 }
@@ -110,9 +114,10 @@ run_fold <- function(
     )
     fit_time_sec <- as.numeric(Sys.time() - t0, units = 'secs')
 
-    pop_test <- d$populacao[test_rows]
+    dt <- d[test_rows, ]
+    pop_test <- dt$populacao
     pred <- fit$summary.fitted.values$mode[test_rows] / pop_test * 1e5
-    real <- d$numCasos[test_rows] / pop_test * 1e5
+    real <- dt$numCasos / pop_test * 1e5
 
     samples <- inla.posterior.sample(N_POSTERIOR_SAMPLES, fit, seed = 0L)
     predictor_pos <- match(
@@ -127,17 +132,24 @@ run_fold <- function(
     sim <- if (family == 'nbinomial') {
       size_samples <- vapply(
         samples,
-        function(s) s$hyperpar[['size for the nbinomial observations (1/overdispersion)']],
+        function(s) {
+          s$hyperpar[['size for the nbinomial observations (1/overdispersion)']]
+        },
         numeric(1)
       )
       sim_raw <- vapply(
         seq_len(ncol(mu_samples)),
-        function(j) rnbinom(nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]),
+        function(j) {
+          rnbinom(
+            nrow(mu_samples), size = size_samples[j], mu = mu_samples[, j]
+          )
+        },
         numeric(nrow(mu_samples))
       )
       sim_raw / pop_test * 1e5
     } else {
-      apply(mu_samples, 2, function(mu) rpois(length(mu), lambda = mu)) / pop_test * 1e5
+      apply(mu_samples, 2, function(mu) rpois(length(mu), lambda = mu)) /
+        pop_test * 1e5
     }
     ci_low <- apply(sim, 1, quantile, probs = 0.025)
     ci_high <- apply(sim, 1, quantile, probs = 0.975)
@@ -153,7 +165,14 @@ run_fold <- function(
       largura_95 = mean(ci_high - ci_low),
       fit_time_sec = fit_time_sec
     )
-    list(metrics = metrics, fit = fit)
+    residuals <- tibble(
+      codMicroRes = dt$codMicroRes, nomeMicroRes = dt$nomeMicroRes,
+      siglaUF = dt$siglaUF, ano = dt$ano, mes = dt$mes, idMes = dt$idMes,
+      populacao = pop_test, real_taxa = real, pred_taxa = pred,
+      residual = real - pred, ci_low = ci_low, ci_high = ci_high,
+      covered = real >= ci_low & real <= ci_high, test_start = fold$test_start
+    )
+    list(metrics = metrics, residuals = residuals, fit = fit)
   }
 
   is_degenerate <- function(out) {
@@ -165,15 +184,19 @@ run_fold <- function(
     fit_and_score(use_warm_start = TRUE),
     error = function(e) {
       message(sprintf(
-        '  [warn] warm-started fit failed (%s) -- retrying cold', conditionMessage(e)
+        '  [warn] warm-started fit failed (%s) -- retrying cold',
+        conditionMessage(e)
       ))
-      log_retry(family, label, especie, fold$test_start, 'crash', conditionMessage(e))
+      log_retry(
+        family, label, especie, fold$test_start, 'crash', conditionMessage(e)
+      )
       fit_and_score(use_warm_start = FALSE)
     }
   )
   if (is_degenerate(out)) {
     message(sprintf(
-      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) -- retrying cold',
+      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) --
+      retrying cold',
       out$metrics$rse, out$metrics$cor
     ))
     log_retry(
@@ -186,22 +209,41 @@ run_fold <- function(
 }
 
 run_cv <- function(
-  df, folds, especie, formula, family, label, out_path, int_strategy = 'eb'
+  df, folds, especie, formula, family, label, out_path, residuals_path,
+  int_strategy = 'eb'
 ) {
   done <- if (file.exists(out_path)) {
     read_csv(out_path, show_col_types = FALSE)
   } else {
     tibble()
   }
-  done_starts <- if (nrow(done) > 0) {
+  done_residuals <- if (file.exists(residuals_path)) {
+    read_csv(residuals_path, show_col_types = FALSE)
+  } else {
+    tibble()
+  }
+  metrics_starts <- if (nrow(done) > 0) {
     done$test_start[done$especie == especie]
   } else {
     numeric(0)
   }
+  residuals_starts <- if (nrow(done_residuals) > 0) {
+    unique(done_residuals$test_start[done_residuals$especie == especie])
+  } else {
+    numeric(0)
+  }
+  done_starts <- intersect(metrics_starts, residuals_starts)
   remaining <- Filter(function(f) !(f$test_start %in% done_starts), folds)
   if (length(remaining) == 0) {
     message(sprintf('[skip] %s (%s): already complete', label, especie))
     return(invisible(NULL))
+  }
+
+  partial_starts <- setdiff(metrics_starts, residuals_starts)
+  if (length(partial_starts) > 0 && nrow(done) > 0) {
+    done |>
+      filter(!(especie == !!especie & test_start %in% partial_starts)) |>
+      write_csv(out_path)
   }
   message(sprintf(
     '%s (%s): %d/%d folds done, %d remaining',
@@ -217,7 +259,12 @@ run_cv <- function(
     )
     row <- out$metrics |>
       mutate(especie = especie, familia = family, modelo = label, .before = 1)
+    residuals_rows <- out$residuals |>
+      mutate(especie = especie, familia = family, modelo = label, .before = 1)
     write_csv(row, out_path, append = file.exists(out_path))
+    write_csv(
+      residuals_rows, residuals_path, append = file.exists(residuals_path)
+    )
     previous_fit <- out$fit
     message(sprintf(
       '  test_start=%d  rse=%.3f  cor=%.3f  coverage_95=%.3f',
@@ -234,10 +281,20 @@ run_model <- function(
   out_path <- sprintf(
     'results/family_comparison/models/%s_%s%s.csv', family, label, path_suffix
   )
+  residuals_path <- sprintf(
+    'results/family_comparison/residuals/%s_%s%s.csv',
+    family, label, path_suffix
+  )
   formula_v <- if (is.list(formula)) formula$vivax else formula
   formula_f <- if (is.list(formula)) formula$falciparum else formula
-  run_cv(micro_v, folds, VIVAX, formula_v, family, label, out_path, int_strategy)
-  run_cv(micro_f, folds, FALCIPARUM, formula_f, family, label, out_path, int_strategy)
+  run_cv(
+    micro_v, folds, VIVAX, formula_v, family, label, out_path,
+    residuals_path, int_strategy
+  )
+  run_cv(
+    micro_f, folds, FALCIPARUM, formula_f, family, label, out_path,
+    residuals_path, int_strategy
+  )
   read_csv(out_path, show_col_types = FALSE)
 }
 
@@ -346,3 +403,57 @@ if (file.exists(BEST_MODELS_OUT)) {
 
 message('\nBest model per distribution family:')
 print(best_models, width = Inf, n = Inf)
+
+
+hotspots <- read_csv(
+  'results/eda/hotspots_ranking.csv', show_col_types = FALSE
+) |>
+  distinct(especie, codMicroRes) |>
+  mutate(is_hotspot = TRUE)
+
+residuals_path_for <- function(familia, modelo) {
+  if (familia == 'bell') {
+    label <- if (modelo == 'model5') 'model5_defor_ns' else 'model6_cnes'
+    sprintf('results/model_iteration/residuals/%s.csv', label)
+  } else {
+    sprintf('results/family_comparison/residuals/%s_%s.csv', familia, modelo)
+  }
+}
+
+combos <- best_models |> distinct(familia, modelo)
+residuos_best <- bind_rows(lapply(seq_len(nrow(combos)), function(i) {
+  read_csv(
+    residuals_path_for(combos$familia[i], combos$modelo[i]),
+    show_col_types = FALSE
+  )
+})) |>
+  left_join(hotspots, by = c('especie', 'codMicroRes')) |>
+  mutate(is_hotspot = if_else(is.na(is_hotspot), FALSE, is_hotspot))
+
+summarise_metrics <- function(data) {
+  data |>
+    group_by(familia, especie) |>
+    summarise(
+      n = n_distinct(codMicroRes),
+      rse = round(rse(real_taxa, pred_taxa), 3),
+      cor = round(cor(real_taxa, pred_taxa), 3),
+      coverage_95 = round(mean(covered), 3),
+      largura_95 = round(mean(ci_high - ci_low), 1),
+      .groups = 'drop'
+    )
+}
+
+metrics_by_hotspot <- bind_rows(
+  summarise_metrics(residuos_best) |>
+    mutate(cenario = 'completo', .before = 1),
+  summarise_metrics(residuos_best |> filter(is_hotspot)) |>
+    mutate(cenario = 'apenas_hotspots', .before = 1),
+  summarise_metrics(residuos_best |> filter(!is_hotspot)) |>
+    mutate(cenario = 'sem_hotspots', .before = 1)
+)
+write_csv(
+  metrics_by_hotspot, 'results/family_comparison/metrics_by_hotspot.csv'
+)
+
+message('\nMetrics by hotspot status, winning model per family:')
+print(metrics_by_hotspot, width = Inf, n = Inf)

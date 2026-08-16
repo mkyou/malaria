@@ -6,7 +6,12 @@ library(INLA)
 inla.setOption(num.threads = '2:1')
 source('scripts/loss_functions.R')
 
-dir.create('results/model_iteration/models', recursive = TRUE, showWarnings = FALSE)
+dir.create(
+  'results/model_iteration/models', recursive = TRUE, showWarnings = FALSE
+)
+dir.create(
+  'results/model_iteration/residuals', recursive = TRUE, showWarnings = FALSE
+)
 
 MICRO_PATH <- 'outputs/micro_map.graph'
 N_POSTERIOR_SAMPLES <- 300
@@ -84,7 +89,8 @@ RETRY_LOG_PATH <- 'results/model_iteration/models/retry_log.csv'
 log_retry <- function(label, especie, test_start, motivo, detalhe) {
   row <- tibble(
     timestamp = as.character(Sys.time()), familia = 'bell', modelo = label,
-    especie = especie, test_start = test_start, motivo = motivo, detalhe = detalhe
+    especie = especie, test_start = test_start, motivo = motivo,
+    detalhe = detalhe
   )
   write_csv(row, RETRY_LOG_PATH, append = file.exists(RETRY_LOG_PATH))
 }
@@ -131,9 +137,10 @@ run_fold <- function(
     )
     fit_time_sec <- as.numeric(Sys.time() - t0, units = 'secs')
 
-    pop_test <- d$populacao[test_rows]
+    dt <- d[test_rows, ]
+    pop_test <- dt$populacao
     pred <- fit$summary.fitted.values$mode[test_rows] / pop_test * 1e5
-    real <- d$numCasos[test_rows] / pop_test * 1e5
+    real <- dt$numCasos / pop_test * 1e5
 
     samples <- inla.posterior.sample(N_POSTERIOR_SAMPLES, fit, seed = 0L)
     predictor_pos <- match(
@@ -159,7 +166,14 @@ run_fold <- function(
       largura_95 = mean(ci_high - ci_low),
       fit_time_sec = fit_time_sec
     )
-    list(metrics = metrics, fit = fit)
+    residuals <- tibble(
+      codMicroRes = dt$codMicroRes, nomeMicroRes = dt$nomeMicroRes,
+      siglaUF = dt$siglaUF, ano = dt$ano, mes = dt$mes, idMes = dt$idMes,
+      populacao = pop_test, real_taxa = real, pred_taxa = pred,
+      residual = real - pred, ci_low = ci_low, ci_high = ci_high,
+      covered = real >= ci_low & real <= ci_high, test_start = fold$test_start
+    )
+    list(metrics = metrics, residuals = residuals, fit = fit)
   }
 
   is_degenerate <- function(out) {
@@ -171,7 +185,8 @@ run_fold <- function(
     fit_and_score(use_warm_start = TRUE),
     error = function(e) {
       message(sprintf(
-        '  [warn] warm-started fit failed (%s) -- retrying cold', conditionMessage(e)
+        '  [warn] warm-started fit failed (%s) -- retrying cold',
+        conditionMessage(e)
       ))
       log_retry(label, especie, fold$test_start, 'crash', conditionMessage(e))
       fit_and_score(use_warm_start = FALSE)
@@ -179,7 +194,8 @@ run_fold <- function(
   )
   if (is_degenerate(out)) {
     message(sprintf(
-      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) -- retrying cold',
+      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) --
+      retrying cold',
       out$metrics$rse, out$metrics$cor
     ))
     log_retry(
@@ -192,17 +208,39 @@ run_fold <- function(
 }
 
 run_cv <- function(
-  df, folds, especie, formula, label, out_path, int_strategy = 'eb'
+  df, folds, especie, formula, label, out_path, residuals_path = NULL,
+  int_strategy = 'eb'
 ) {
   done <- if (file.exists(out_path)) {
     read_csv(out_path, show_col_types = FALSE)
   } else {
     tibble()
   }
-  done_starts <- if (nrow(done) > 0) {
+  metrics_starts <- if (nrow(done) > 0) {
     done$test_start[done$especie == especie]
   } else {
     numeric(0)
+  }
+  if (is.null(residuals_path)) {
+    done_starts <- metrics_starts
+  } else {
+    done_residuals <- if (file.exists(residuals_path)) {
+      read_csv(residuals_path, show_col_types = FALSE)
+    } else {
+      tibble()
+    }
+    residuals_starts <- if (nrow(done_residuals) > 0) {
+      unique(done_residuals$test_start[done_residuals$especie == especie])
+    } else {
+      numeric(0)
+    }
+    done_starts <- intersect(metrics_starts, residuals_starts)
+    partial_starts <- setdiff(metrics_starts, residuals_starts)
+    if (length(partial_starts) > 0 && nrow(done) > 0) {
+      done |>
+        filter(!(especie == !!especie & test_start %in% partial_starts)) |>
+        write_csv(out_path)
+    }
   }
   remaining <- Filter(function(f) !(f$test_start %in% done_starts), folds)
   if (length(remaining) == 0) {
@@ -224,6 +262,13 @@ run_cv <- function(
     row <- out$metrics |>
       mutate(especie = especie, familia = 'bell', modelo = label, .before = 1)
     write_csv(row, out_path, append = file.exists(out_path))
+    if (!is.null(residuals_path)) {
+      residuals_rows <- out$residuals |>
+        mutate(especie = especie, familia = 'bell', modelo = label, .before = 1)
+      write_csv(
+        residuals_rows, residuals_path, append = file.exists(residuals_path)
+      )
+    }
     previous_fit <- out$fit
     message(sprintf(
       '  test_start=%d  rse=%.3f  cor=%.3f  coverage_95=%.3f',
@@ -236,13 +281,25 @@ run_cv <- function(
 FOLDS_STANDARD <- build_folds(109, 216, horizon = 3, step = 3)
 
 run_model <- function(
-  label, formula, folds = FOLDS_STANDARD, int_strategy = 'eb'
+  label, formula, folds = FOLDS_STANDARD, int_strategy = 'eb',
+  save_residuals = FALSE
 ) {
   out_path <- sprintf('results/model_iteration/models/%s.csv', label)
+  residuals_path <- if (save_residuals) {
+    sprintf('results/model_iteration/residuals/%s.csv', label)
+  } else {
+    NULL
+  }
   formula_v <- if (is.list(formula)) formula$vivax else formula
   formula_f <- if (is.list(formula)) formula$falciparum else formula
-  run_cv(micro_v, folds, VIVAX, formula_v, label, out_path, int_strategy)
-  run_cv(micro_f, folds, FALCIPARUM, formula_f, label, out_path, int_strategy)
+  run_cv(
+    micro_v, folds, VIVAX, formula_v, label, out_path, residuals_path,
+    int_strategy
+  )
+  run_cv(
+    micro_f, folds, FALCIPARUM, formula_f, label, out_path, residuals_path,
+    int_strategy
+  )
   read_csv(out_path, show_col_types = FALSE)
 }
 
@@ -311,7 +368,7 @@ formula_model5 <- update(
     precip_mm_z + temp_z + rhum_z
 )
 resultados_model5 <- run_model(
-  'model5_defor_ns', formula_model5
+  'model5_defor_ns', formula_model5, save_residuals = TRUE
 )
 
 message('Model 5 -- Model 4, defor_lag2 as ns(df=3) instead of linear:')
@@ -320,7 +377,8 @@ print(resultados_model5, width = Inf, n = Inf)
 
 FOLDS_ANNUAL <- build_folds(109, 216, horizon = 12, step = 12)
 resultados_model5_annual <- run_model(
-  'model5_defor_ns_annual', formula_model5, folds = FOLDS_ANNUAL
+  'model5_defor_ns_annual', formula_model5, folds = FOLDS_ANNUAL,
+  save_residuals = TRUE
 )
 
 message('Model 5, annual regime:')
@@ -333,7 +391,7 @@ formula_model6 <- list(
   vivax = formula_model6_vivax, falciparum = formula_model6_falciparum
 )
 resultados_model6 <- run_model(
-  'model6_cnes', formula_model6
+  'model6_cnes', formula_model6, save_residuals = TRUE
 )
 
 message('Model 6 (final) -- Model 5 + species-specific CNES covariate:')
@@ -380,11 +438,11 @@ if (file.exists(ITERATION_METRICS_OUT)) {
     resultados |>
       group_by(especie) |>
       summarise(
-        dic = median(dic), mbe = median(mbe), nrmse = median(nrmse),
-        rae = median(rae), rmsle = median(rmsle), rse = median(rse),
-        cor = median(cor), coverage_95 = median(coverage_95),
-        largura_95 = median(largura_95),
-        fit_time_sec = median(fit_time_sec), .groups = 'drop'
+        dic = mean(dic), mbe = mean(mbe), nrmse = mean(nrmse),
+        rae = mean(rae), rmsle = mean(rmsle), rse = mean(rse),
+        cor = mean(cor), coverage_95 = mean(coverage_95),
+        largura_95 = mean(largura_95),
+        fit_time_sec = mean(fit_time_sec), .groups = 'drop'
       ) |>
       mutate(baseline = label, .before = 1)
   }

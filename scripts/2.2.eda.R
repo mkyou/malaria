@@ -205,7 +205,8 @@ lrt_resultados <- bind_rows(lapply(names(fits_intime), function(sp) {
 }))
 
 message(
-  'In-time: deviance explained by adding all 4 covariates (likelihood-ratio test):'
+  'In-time: deviance explained by adding all 4 covariates
+  (likelihood-ratio test):'
 )
 print(lrt_resultados)
 

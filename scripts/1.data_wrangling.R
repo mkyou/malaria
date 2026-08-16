@@ -85,7 +85,9 @@ expected_codes <- uf_lookup |>
   filter(sigla_UF %in% LEGAL_AMAZON_STATES) |>
   pull(cod_micro_reg) |> unique()
 
-micro_sf <- st_read('data/spatial_data/sph_files/microrreg.shp', quiet = TRUE) |>
+micro_sf <- st_read(
+  'data/spatial_data/sph_files/microrreg.shp', quiet = TRUE
+) |>
   mutate(code_micro = as.numeric(CD_MICRO)) |>
   filter(SIGLA_UF %in% LEGAL_AMAZON_STATES)
 

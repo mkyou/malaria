@@ -28,7 +28,7 @@ already exists on disk), except `1.data_wrangling.R`.
 Sources: case notifications from a public Mendeley Data deposit (DOI
 `10.17632/9n6b97fsbd.2`, species-coded, municipality-month grain);
 population from IBGE/SIDRA; deforestation from INPE PRODES; precipitation,
-temperature and dewpoint from ERA5; health facility counts from
+temperature and dewpoint from ERA5 (login required); health facility counts from
 DataSUS/CNES (monthly FTP snapshots); microregion boundaries from IBGE's
 shapefile. Everything is cached to disk and only re-downloaded if missing.
 
@@ -56,7 +56,7 @@ above that species' own top-1% rate), built into the panel here but not
 used as a covariate anywhere in `2.3.model_iteration.R` or
 `3.family_comparison.R`. The static, whole-period version of the same
 idea (`results/eda/hotspots_ranking.csv`, from `2.1.eda.R`) is what
-actually gets used, in §5's hotspot-vs-rest breakdown.
+actually gets used, in §4 & §5's hotspot-vs-rest breakdown.
 
 ## 2.1 / 2.2 — Exploratory analysis
 
@@ -98,12 +98,12 @@ Built up Model 0 (intercept only) through Model 6:
   mixing parameter came out around 0.23 in a direct check, so it's mostly
   unstructured anyway. `iid` is used everywhere, at a fraction of the
   compute.
-- **Model 5**: adds deforestation (as a natural spline, clearly better
+- **Model 5**: adds deforestation (as a natural spline, better
   than linear), precipitation, temperature, and humidity as flat fixed
   effects.
 - **Model 6**: adds a species-specific CNES facility-type covariate. Not
-  adopted: no robust improvement over Model 5 on the full CV (falciparum
-  rse actually worsens slightly). Kept as a secondary candidate.
+  adopted: no robust improvement over Model 5 on the full CV. 
+  Kept as a secondary candidate.
 - Two CV regimes run for the final candidates: quarterly refit (36
   folds, `step=3`, cycling every calendar quarter) and annual refit
   (single fit per year, no mid-course update). The quarterly design
@@ -115,32 +115,33 @@ data (all coefficients' 95% credible intervals excluded 0), not
 re-verified per fold. A covariate could in principle be credible overall
 while not adding real predictive value in every fold.
 
-Median across the quarterly-refit CV folds, `results/model_iteration/iteration_metrics.csv`:
+Mean across the quarterly-refit CV folds, `results/model_iteration/iteration_metrics.csv`:
 
 | Model | Species | DIC | RSE | cor | coverage_95 | width_95 |
 |---|---|---|---|---|---|---|
-| glm_sem_covariaveis | P. falciparum | NA | 0.636 | 0.644 | 0.603 | 7.2 |
-| glm_sem_covariaveis | P. vivax | NA | 0.492 | 0.776 | 0.433 | 20.7 |
-| model0_intercept | P. falciparum | 1,000,255 | 1.111 | 0.087 | 0.126 | 32.6 |
-| model0_intercept | P. vivax | 2,509,753 | 1.013 | 0.069 | 0.070 | 74.4 |
-| model1_iid_ar1_ano | P. falciparum | 100,797 | 0.161 | 0.945 | 0.933 | 11.0 |
-| model1_iid_ar1_ano | P. vivax | 168,591 | 0.218 | 0.907 | 0.824 | 48.0 |
-| model2_bym2_ar1_ano | P. falciparum | 100,803 | 0.170 | 0.944 | 0.933 | 11.1 |
-| model2_bym2_ar1_ano | P. vivax | 168,595 | 0.231 | 0.907 | 0.822 | 48.1 |
-| model3_separated_iid | P. falciparum | 89,431 | 0.124 | 0.954 | 0.949 | 11.5 |
-| model3_separated_iid | P. vivax | 136,666 | 0.140 | 0.941 | 0.844 | 52.0 |
-| model4_covariates | P. falciparum | 89,208 | 0.136 | 0.952 | 0.942 | 11.4 |
-| model4_covariates | P. vivax | 136,222 | 0.138 | 0.941 | 0.849 | 52.6 |
-| model5_defor_ns (adopted) | P. falciparum | 89,211 | 0.135 | 0.956 | 0.942 | 11.5 |
-| model5_defor_ns (adopted) | P. vivax | 136,226 | 0.138 | 0.941 | 0.850 | 52.2 |
-| model6_cnes | P. falciparum | 89,211 | 0.135 | 0.955 | 0.939 | 11.5 |
-| model6_cnes | P. vivax | 136,225 | 0.138 | 0.942 | 0.850 | 52.5 |
-| paper_best_replica | P. falciparum | 163,301 | 0.674 | 0.645 | 0.815 | 12.7 |
-| paper_best_replica | P. vivax | 124,433 | 0.798 | 0.800 | 0.928 | 210.1 |
+| glm_sem_covariaveis | P. falciparum | NA | 0.616 | 0.644 | 0.600 | 7.9 |
+| glm_sem_covariaveis | P. vivax | NA | 0.489 | 0.774 | 0.434 | 20.9 |
+| model0_intercept | P. falciparum | 994,782 | 1.161 | 0.066 | 0.127 | 33.2 |
+| model0_intercept | P. vivax | 2,515,452 | 1.025 | 0.075 | 0.066 | 75.9 |
+| model1_iid_ar1_ano | P. falciparum | 100,206 | 0.209 | 0.934 | 0.940 | 22.6 |
+| model1_iid_ar1_ano | P. vivax | 169,320 | 0.235 | 0.901 | 0.845 | 110.6 |
+| model2_bym2_ar1_ano | P. falciparum | 100,184 | 0.222 | 0.934 | 0.942 | 22.1 |
+| model2_bym2_ar1_ano | P. vivax | 169,346 | 0.249 | 0.900 | 0.846 | 107.6 |
+| model3_separated_iid | P. falciparum | 88,835 | 0.219 | 0.939 | 0.944 | 24.1 |
+| model3_separated_iid | P. vivax | 136,972 | 0.165 | 0.937 | 0.861 | 115.5 |
+| model4_covariates | P. falciparum | 88,681 | 0.219 | 0.938 | 0.942 | 23.3 |
+| model4_covariates | P. vivax | 136,659 | 0.165 | 0.938 | 0.860 | 111.8 |
+| model5_defor_ns (adopted) | P. falciparum | 88,686 | 0.213 | 0.939 | 0.942 | 23.0 |
+| model5_defor_ns (adopted) | P. vivax | 136,661 | 0.161 | 0.938 | 0.861 | 110.6 |
+| model6_cnes | P. falciparum | 88,685 | 0.212 | 0.939 | 0.942 | 22.9 |
+| model6_cnes | P. vivax | 136,662 | 0.162 | 0.938 | 0.860 | 107.7 |
+| paper_best_replica | P. falciparum | 158,798 | 0.652 | 0.652 | 0.804 | 13.4 |
+| paper_best_replica | P. vivax | 124,328 | 0.800 | 0.786 | 0.927 | 200.5 |
 
-Models 3 through 6 are all within noise of each other on every metric in
+
+Models 4 through 6 are all within noise of each other on every metric in
 this table. Model 5 is what we carried forward, mainly for the
-defor_lag2 spline result, but nothing in this CV cleanly rules out 3, 4,
+defor_lag2 spline result, but nothing in this CV cleanly rules out 4,
 or 6 either. Worth stating plainly rather than letting the table imply a
 decisive winner.
 
@@ -175,15 +176,16 @@ INLA integration setting, and independent of `num.threads`.
 Negative Binomial is also the heaviest, least stable fit in the whole
 pipeline. The kernel OOM-killer repeatedly killed the INLA process
 mid-fit here, which is why every CV script sets `num.threads = '2:1'`
-instead of full parallelism. INLA also crashed outright a handful of
-times independent of memory pressure. `results/family_comparison/models/retry_log.csv`
-has 4 such crashes, all Negative Binomial, all Model 6/falciparum;
-`results/holdout/models/retry_log.csv` has one more. Bell's own retry
-log (would be `results/model_iteration/models/retry_log.csv`) never
-needed to exist. Every fold checkpoints to disk as it completes, and
-every crash, or a fit that completes but comes back numerically
-degenerate (`cor < 0.3` or `rse > 5`), triggers one cold retry without
-the previous fold's warm start.
+instead of full parallelism. INLA also crashed outright, independent of
+memory pressure, or converged to a numerically degenerate fit (`cor <
+0.3` or `rse > 5`) without raising an error at all.
+`results/family_comparison/models/retry_log.csv` has 13 such events (7
+crashes, 6 degenerate), all Negative Binomial, all falciparum, split
+across Model 5 and Model 6; `results/holdout/models/retry_log.csv` has
+one more, same pattern. Bell's own retry log (would be
+`results/model_iteration/models/retry_log.csv`) never needed to exist.
+Every fold checkpoints to disk as it completes, and every one of these
+events triggers one cold retry without the previous fold's warm start.
 
 **No single family wins uniformly.** Always compare `|coverage_95 -
 0.95|` (distance from the calibration target), not raw coverage
@@ -198,17 +200,53 @@ Winning model per family/species, quarterly-refit CV, `results/best_models.csv`:
 | bell | P. vivax | model5 | 136,226 | 0.138 | 0.941 | 0.850 | 52.2 |
 | poisson | P. falciparum | model5 | 77,398 | 0.131 | 0.953 | 0.883 | 6.2 |
 | poisson | P. vivax | model5 | 40,396 | 0.141 | 0.941 | 0.720 | 23.7 |
-| nbinomial | P. falciparum | model6 | 86,258 | 0.152 | 0.953 | 0.975 | 28.2 |
-| nbinomial | P. vivax | model6 | 128,482 | 0.145 | 0.938 | 0.941 | 162.7 |
+| nbinomial | P. falciparum | model5 | 86,260 | 0.152 | 0.953 | 0.975 | 27.9 |
+| nbinomial | P. vivax | model5 | 128,484 | 0.145 | 0.938 | 0.942 | 161.6 |
 
-On this validation CV, no family sweeps the board, but if forced to
-pick per species, Bell for falciparum and Negative Binomial for vivax
-looks like the defensible read (best or near-best RSE and coverage for
-each). We didn't split the choice that way in the end: §4/§5 run
-Negative Binomial for both species, for simplicity and because it never
-looks clearly wrong on either. That's a judgment call, not something the
-numbers force, and it's worth saying so rather than presenting the
-family choice as more settled than it is.
+On this validation CV, Bell and Poisson actually has the better RSE overall, and Negative
+Binomial trails both in every row (0.152 / 0.145) -- a real gap, though
+a modest one (5-13% relative). Taken alone, that table would argue for
+Bell (better coverage than Poisson), not Negative Binomial. 
+This doesn't hold up once you split by
+chronic hotspot status (`results/eda/hotspots_ranking.csv`, same set
+used in §5), `results/family_comparison/metrics_by_hotspot.csv`:
+
+| Scenario | Family | Species | n | RSE | cor | coverage_95 | width_95 |
+|---|---|---|---|---|---|---|---|
+| hotspots | bell | P. falciparum | 12 | 0.275 | 0.855 | 0.850 | 116.0 |
+| hotspots | bell | P. vivax | 11 | 0.261 | 0.864 | 0.641 | 643.0 |
+| hotspots | poisson | P. falciparum | 12 | 0.285 | 0.850 | 0.710 | 101.0 |
+| hotspots | poisson | P. vivax | 11 | 0.269 | 0.860 | 0.429 | 547.0 |
+| hotspots | nbinomial | P. falciparum | 12 | 0.266 | 0.862 | 0.943 | 208.6 |
+| hotspots | nbinomial | P. vivax | 11 | 0.272 | 0.862 | 0.950 | 1225.0 |
+| excl. hotspots | bell | P. falciparum | 95 | 0.246 | 0.869 | 0.954 | 11.3 |
+| excl. hotspots | bell | P. vivax | 96 | 0.271 | 0.859 | 0.886 | 49.5 |
+| excl. hotspots | poisson | P. falciparum | 95 | 0.255 | 0.864 | 0.912 | 9.4 |
+| excl. hotspots | poisson | P. vivax | 96 | 0.292 | 0.850 | 0.793 | 39.0 |
+| excl. hotspots | nbinomial | P. falciparum | 95 | 0.243 | 0.875 | 0.969 | 16.2 |
+| excl. hotspots | nbinomial | P. vivax | 96 | 0.234 | 0.876 | 0.940 | 85.4 |
+
+Two things happen at once at hotspots. First, Bell and Poisson's RSE
+edge disappears: Negative Binomial actually has the best RSE of the
+three for falciparum there (0.266 vs. 0.275 and 0.285), and is within
+0.01 of Bell for vivax (0.272 vs. 0.261). The overall-CV gap that
+favored Bell was coming entirely from the non-hotspot majority (95-96 of
+107 microregions), not from Negative Binomial being a worse model where
+it's actually hard. Second, and more decisively: coverage_95 splits
+hard. Away from hotspots all three families stay in a defensible range
+(0.79-0.97). At hotspots, Poisson's coverage collapses (0.71 falciparum,
+**0.43 vivax**, under half nominal), Bell degrades too (0.85 / 0.64),
+and only Negative Binomial holds close to 0.95 in both species (0.94 /
+0.95) — at the cost of a much wider interval there (209-1225 vs 101-643
+for the other two).
+
+So the honest summary: on raw point-prediction accuracy, Bell is the
+better model overall, by a modest but real margin, and that alone would
+argue for it. It loses that edge specifically where the disease burden
+actually concentrates, and it's badly miscalibrated there on top of it.
+Negative Binomial gives up a little accuracy on the easy majority of
+microregions in exchange for not breaking calibration on the hard ones.
+That trade, not a uniform win, is why §4/§5 run it for both species.
 
 ## 4. Holdout evaluation
 
@@ -266,7 +304,11 @@ choice matters a lot:
 
 RMSLE (`map_errors_rmsle.png`, `map_errors_trend_rmsle.png`) is kept as a
 second, baseline-free metric, since it doesn't depend on which naive
-comparison is deemed fair.
+comparison is deemed fair. It has no cases/100k unit of its own (it's
+built from `log(real+1) - log(pred+1)`, a ratio, not a difference of
+rates): read it as a typical multiplicative gap between predicted and
+real, `exp(RMSLE)`. The cap at 2 is `exp(2) ≈ 7.4x`, e.g. predicting 10
+cases/100k when the real rate is around 74, or the reverse.
 
 ![RMSLE by microregion and horizon](results/holdout/maps/map_errors_rmsle.png)
 ![Same comparison, split by year](results/holdout/maps/map_errors_trend_rmsle.png)
