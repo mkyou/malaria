@@ -195,8 +195,10 @@ run_fold <- function(
   )
   if (is_degenerate(out)) {
     message(sprintf(
-      '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) --
-      retrying cold',
+      paste0(
+        '  [warn] degenerate warm-started fit (rse=%.2f, cor=%.2f) ',
+        '-- retrying cold'
+      ),
       out$metrics$rse, out$metrics$cor
     ))
     log_retry(
