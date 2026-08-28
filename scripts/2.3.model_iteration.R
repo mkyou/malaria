@@ -26,13 +26,16 @@ micro_v <- read_csv(
   arrange(codMicroRes, idMes) |>
   group_by(codMicroRes) |>
   mutate(
-    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12)
+    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12),
+    precip_mm = dplyr::lag(precip_mm, 1), temp = dplyr::lag(temp, 1),
+    rhum = dplyr::lag(rhum, 1)
   ) |>
   ungroup() |>
+  filter(idMes > 1) |>
   mutate(
     idAno = ano - min(ano) + 1L,
     idInteraction = as.numeric(interaction(idArea, idMes)),
-    idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes
+    idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes, mes3 = mes
   )
 micro_f <- read_csv(
   'data/output_data/micro_reg_f_df.csv', show_col_types = FALSE
@@ -40,13 +43,16 @@ micro_f <- read_csv(
   arrange(codMicroRes, idMes) |>
   group_by(codMicroRes) |>
   mutate(
-    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12)
+    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12),
+    precip_mm = dplyr::lag(precip_mm, 1), temp = dplyr::lag(temp, 1),
+    rhum = dplyr::lag(rhum, 1)
   ) |>
   ungroup() |>
+  filter(idMes > 1) |>
   mutate(
     idAno = ano - min(ano) + 1L,
     idInteraction = as.numeric(interaction(idArea, idMes)),
-    idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes
+    idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes, mes3 = mes
   )
 
 COVARIATES <- c('defor_lag2', 'precip_mm', 'temp', 'rhum', 'n_tp_73', 'n_tp_81')
@@ -313,6 +319,17 @@ message('Model 0 -- intercept only, Bell, standard folds:')
 print(resultados_model0, width = Inf, n = Inf)
 
 
+formula_spec1 <- numCasos ~
+  f(idArea, model = 'iid') +
+  f(idAno, model = 'ar1') +
+  f(mes, model = 'rw2', constr = TRUE, cyclic = TRUE) +
+  offset(log(populacao))
+resultados_spec1 <- run_model('spec1_separated_additive', formula_spec1)
+
+message('Spec 1 -- separated main effects, no interactions, standard folds:')
+print(resultados_spec1, width = Inf, n = Inf)
+
+
 formula_model1 <- numCasos ~
   f(idArea, model = 'iid', group = idAno, control.group = list(model = 'ar1')) +
   offset(log(populacao))
@@ -440,11 +457,11 @@ if (file.exists(ITERATION_METRICS_OUT)) {
     resultados |>
       group_by(especie) |>
       summarise(
-        dic = mean(dic), mbe = mean(mbe), nrmse = mean(nrmse),
-        rae = mean(rae), rmsle = mean(rmsle), rse = mean(rse),
-        cor = mean(cor), coverage_95 = mean(coverage_95),
-        largura_95 = mean(largura_95),
-        fit_time_sec = mean(fit_time_sec), .groups = 'drop'
+        dic = median(dic), waic = median(waic), mbe = median(mbe),
+        nrmse = median(nrmse), rae = median(rae), rmsle = median(rmsle),
+        rse = median(rse), cor = median(cor),
+        coverage_95 = median(coverage_95), largura_95 = median(largura_95),
+        fit_time_sec = median(fit_time_sec), .groups = 'drop'
       ) |>
       mutate(baseline = label, .before = 1)
   }
@@ -458,6 +475,7 @@ if (file.exists(ITERATION_METRICS_OUT)) {
   )
 
   model0_baseline <- summarise_cv(resultados_model0, 'model0_intercept')
+  spec1_baseline <- summarise_cv(resultados_spec1, 'spec1_separated_additive')
   model1_baseline <- summarise_cv(resultados_model1, 'model1_iid_ar1_ano')
   model2_baseline <- summarise_cv(resultados_model2, 'model2_bym2_ar1_ano')
   model3_baseline <- summarise_cv(resultados_model3, 'model3_separated_iid')
@@ -469,7 +487,7 @@ if (file.exists(ITERATION_METRICS_OUT)) {
   )
 
   iteration_metrics <- bind_rows(
-    glm_baseline, model0_baseline,
+    glm_baseline, model0_baseline, spec1_baseline,
     model1_baseline, model2_baseline, model3_baseline, model4_baseline,
     model5_baseline, model6_baseline, paper_replica_baseline
   ) |>

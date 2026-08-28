@@ -24,9 +24,12 @@ micro_v <- read_csv(
   arrange(codMicroRes, idMes) |>
   group_by(codMicroRes) |>
   mutate(
-    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12)
+    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12),
+    precip_mm = dplyr::lag(precip_mm, 1), temp = dplyr::lag(temp, 1),
+    rhum = dplyr::lag(rhum, 1)
   ) |>
   ungroup() |>
+  filter(idMes > 1) |>
   mutate(
     idAno = ano - min(ano) + 1L,
     idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes
@@ -37,9 +40,12 @@ micro_f <- read_csv(
   arrange(codMicroRes, idMes) |>
   group_by(codMicroRes) |>
   mutate(
-    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12)
+    n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12),
+    precip_mm = dplyr::lag(precip_mm, 1), temp = dplyr::lag(temp, 1),
+    rhum = dplyr::lag(rhum, 1)
   ) |>
   ungroup() |>
+  filter(idMes > 1) |>
   mutate(
     idAno = ano - min(ano) + 1L,
     idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes
@@ -437,6 +443,10 @@ summarise_metrics <- function(data) {
     group_by(familia, especie) |>
     summarise(
       n = n_distinct(codMicroRes),
+      mbe = round(mbe(real_taxa, pred_taxa), 3),
+      nrmse = round(nrmse(real_taxa, pred_taxa), 3),
+      rae = round(rae(real_taxa, pred_taxa), 3),
+      rmsle = round(rmsle(real_taxa, pred_taxa), 3),
       rse = round(rse(real_taxa, pred_taxa), 3),
       cor = round(cor(real_taxa, pred_taxa), 3),
       coverage_95 = round(mean(covered), 3),

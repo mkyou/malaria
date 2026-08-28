@@ -31,9 +31,12 @@ load_species <- function(path) {
     arrange(codMicroRes, idMes) |>
     group_by(codMicroRes) |>
     mutate(
-      n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12)
+      n_tp_73 = dplyr::lag(n_tp_73, 12), n_tp_81 = dplyr::lag(n_tp_81, 12),
+      precip_mm = dplyr::lag(precip_mm, 1), temp = dplyr::lag(temp, 1),
+      rhum = dplyr::lag(rhum, 1)
     ) |>
     ungroup() |>
+    filter(idMes > 1) |>
     mutate(
       idAno = ano - min(ano) + 1L,
       idArea2 = idArea, idAno2 = idAno, idArea3 = idArea, mes2 = mes

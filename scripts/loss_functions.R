@@ -7,7 +7,7 @@ mae = function(real, pred){
 }
 
 mbe = function(real, pred){
-  abs(mean(real - pred))
+  mean(real - pred)
 }
 
 rae = function(real, pred){

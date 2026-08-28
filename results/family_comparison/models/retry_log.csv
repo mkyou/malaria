@@ -1,19 +1,23 @@
 timestamp,familia,modelo,especie,test_start,motivo,detalhe
-2026-08-15 11:00:20.886596,nbinomial,model6,P. falciparum,196,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+2026-08-26 22:45:59.880001,nbinomial,model5,P. falciparum,190,degenerate,rse=1.10 cor=0.05
+2026-08-26 22:54:08.997458,nbinomial,model5,P. falciparum,199,degenerate,rse=2.37 cor=0.09
+2026-08-26 22:58:38.86949,nbinomial,model5,P. falciparum,202,degenerate,rse=25277.19 cor=-0.08
+2026-08-27 09:17:25.125876,nbinomial,model5,P. falciparum,208,degenerate,rse=8.08 cor=-0.04
+2026-08-27 09:20:47.551779,nbinomial,model5,P. falciparum,211,degenerate,rse=9.85 cor=0.07
+2026-08-27 09:26:32.354131,nbinomial,model5,P. falciparum,214,degenerate,rse=1727016.34 cor=-0.02
+2026-08-27 09:43:37.278237,nbinomial,model6,P. falciparum,178,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
   If this does not help, please contact the developers at <help@r-inla.org>."
-2026-08-15 11:09:24.361785,nbinomial,model6,P. falciparum,208,crash,no se puede abrir la conexión
-2026-08-15 11:14:36.03389,nbinomial,model6,P. falciparum,214,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+2026-08-27 09:51:19.905071,nbinomial,model6,P. falciparum,184,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
   If this does not help, please contact the developers at <help@r-inla.org>."
-2026-08-15 11:40:25.6323,nbinomial,model6,P. falciparum,181,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+2026-08-27 10:03:53.893396,nbinomial,model6,P. falciparum,190,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
   If this does not help, please contact the developers at <help@r-inla.org>."
-2026-08-16 06:35:12.656951,nbinomial,model5,P. falciparum,196,degenerate,rse=10679.74 cor=-0.07
-2026-08-16 06:42:26.438268,nbinomial,model5,P. falciparum,202,degenerate,rse=8.53 cor=0.00
-2026-08-16 07:02:21.51124,nbinomial,model5,P. falciparum,211,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+2026-08-27 10:12:27.951619,nbinomial,model6,P. falciparum,199,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
   If this does not help, please contact the developers at <help@r-inla.org>."
-2026-08-16 07:44:17.158867,nbinomial,model6,P. falciparum,205,degenerate,rse=224.20 cor=-0.08
-2026-08-16 07:48:29.568725,nbinomial,model6,P. falciparum,214,degenerate,rse=1.94 cor=0.12
-2026-08-16 07:59:46.046484,nbinomial,model5,P. falciparum,145,degenerate,rse=4.01 cor=0.28
-2026-08-16 08:05:15.864566,nbinomial,model5,P. falciparum,205,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+2026-08-27 10:32:00.068268,nbinomial,model6,P. falciparum,211,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
   If this does not help, please contact the developers at <help@r-inla.org>."
-2026-08-16 08:16:18.783464,nbinomial,model6,P. falciparum,193,degenerate,rse=927882.23 cor=0.06
-2026-08-16 08:41:09.133929,nbinomial,model6,P. falciparum,205,degenerate,rse=257.32 cor=-0.01
+2026-08-27 10:33:45.088253,nbinomial,model6,P. falciparum,214,degenerate,rse=3714740.56 cor=-0.01
+2026-08-27 11:03:06.669521,nbinomial,model5,P. falciparum,193,degenerate,rse=2.85 cor=0.04
+2026-08-27 11:10:27.405814,nbinomial,model6,P. falciparum,181,degenerate,rse=321.89 cor=0.01
+2026-08-27 11:21:15.297545,nbinomial,model6,P. falciparum,193,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>."
+2026-08-27 11:25:41.915315,nbinomial,model6,P. falciparum,205,degenerate,rse=358.58 cor=-0.02

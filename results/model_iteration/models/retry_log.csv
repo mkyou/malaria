@@ -1,0 +1,31 @@
+timestamp,familia,modelo,especie,test_start,motivo,detalhe
+2026-08-26 21:56:29.143744,bell,paper_best_replica,P. falciparum,112,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 21:57:46.042511,bell,paper_best_replica,P. falciparum,121,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 21:58:29.173582,bell,paper_best_replica,P. falciparum,124,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 21:59:09.786565,bell,paper_best_replica,P. falciparum,127,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 21:59:48.768518,bell,paper_best_replica,P. falciparum,130,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 22:00:27.354559,bell,paper_best_replica,P. falciparum,133,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 22:01:08.589145,bell,paper_best_replica,P. falciparum,136,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 22:02:58.303553,bell,paper_best_replica,P. falciparum,151,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 22:03:38.454651,bell,paper_best_replica,P. falciparum,154,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-26 22:04:24.778573,bell,paper_best_replica,P. falciparum,163,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."

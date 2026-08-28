@@ -1,3 +1,8 @@
 timestamp,familia,modelo,especie,test_start,motivo,detalhe
-2026-08-15 13:09:04.664491,nbinomial,model5,P. falciparum,232,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
-  If this does not help, please contact the developers at <help@r-inla.org>."
+2026-08-27 11:46:19.625621,nbinomial,model5,P. falciparum,220,degenerate,rse=885.01 cor=-0.07
+2026-08-27 11:57:33.785944,nbinomial,model5,P. falciparum,223,degenerate,rse=2.13 cor=0.04
+2026-08-27 12:04:34.56467,nbinomial,model5,P. falciparum,229,crash,"The inla-program exited with an error. Unless you interupted it yourself, please rerun with verbose=TRUE and check the output carefully.
+  If this does not help, please contact the developers at <help@r-inla.org>.
+The inla program failed and the maximum number of tries has been reached."
+2026-08-27 12:11:51.227246,nbinomial,model5,P. falciparum,238,degenerate,rse=11333352.52 cor=-0.06
+2026-08-27 12:16:32.447711,nbinomial,model5,P. falciparum,217,degenerate,rse=15.29 cor=0.31
